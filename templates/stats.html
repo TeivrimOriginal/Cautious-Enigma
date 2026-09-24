@@ -106,6 +106,22 @@
 </section>
 <section class="panel">
   <div class="actions" style="justify-content: space-between;">
+    <h3 style="margin: 0;">Прогноз на 14 дней</h3>
+    <span class="tag">если отвечать «нормально»</span>
+  </div>
+  <div class="chart">
+    {% for point in forecast %}
+      <div class="col" title="{{ point.label }}: в работе {{ point.learned }}">
+        <div class="bar" style="height: {{ point.percent }}%"></div>
+        <div class="label">{{ point.label }}</div>
+      </div>
+    {% endfor %}
+  </div>
+  <p class="muted small">{{ forecast_text }}</p>
+</section>
+
+<section class="panel">
+  <div class="actions" style="justify-content: space-between;">
     <h3 style="margin: 0;">Достижения</h3>
     <span class="tag">Уровень {{ level }} · {{ level_title }} · {{ xp }} XP</span>
   </div>

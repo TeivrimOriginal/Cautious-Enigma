@@ -368,6 +368,41 @@ label.field span {
 .review-card {
   text-align: center;
   padding: 32px 24px;
+  animation: card-in 0.25s ease;
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+details.reveal[open] .answer {
+  animation: answer-in 0.25s ease;
+}
+
+@keyframes answer-in {
+  from {
+    opacity: 0;
+    transform: rotateX(-35deg);
+    transform-origin: top center;
+  }
+  to {
+    opacity: 1;
+    transform: rotateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-card,
+  details.reveal[open] .answer {
+    animation: none;
+  }
 }
 
 .review-card .word {

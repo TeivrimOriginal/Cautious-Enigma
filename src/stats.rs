@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 
 use chrono::NaiveDate;
 
+use crate::sm2::Sm2State;
+
 /// Текущий стрик: дни подряд с хотя бы одним повторением.
 ///
 /// Стрик не прерывается, если сегодня повторений ещё не было, но вчера были:
@@ -270,8 +272,77 @@ pub fn grammar_xp(correct: bool) -> i32 {
     }
 }
 
-/// Итоговый опыт по накопленным счётчикам.
+/* ------------------------------------------------------------------ *
+ * Прогноз освоения
+ * ------------------------------------------------------------------ */
+
+/// Состояние карточки для симуляции: только то, что влияет на SM-2.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SimCard {
+    pub repetitions: u32,
+    pub interval_days: u32,
+    pub ease: f64,
+    pub due_date: Option<NaiveDate>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ForecastPoint {
+    pub day: NaiveDate,
+    /// Сколько карточек накопилось с 3+ успешными повторениями.
+    pub learned: i32,
+    /// Сколько карточек достигло 5+ повторений.
+    pub mastered: i32,
+    /// Всего повторений с начала симуляции.
+    pub reviews: i32,
+}
+
+/// Симулирует повторения на `days` дней вперёд при ответе `quality`.
 ///
+/// Реальные карточки не меняются: симуляция идёт на копии.
+pub fn forecast(cards: &[SimCard], today: NaiveDate, days: i32, quality: u8) -> Vec<ForecastPoint> {
+    let mut simulated: Vec<SimCard> = cards.to_vec();
+    let mut points = Vec::with_capacity(days.max(0) as usize + 1);
+    let mut total_reviews = 0_i32;
+
+    for offset in 0..=days.max(0) {
+        let day = today + chrono::Days::new(u64::try_from(offset).unwrap_or(0));
+
+        if offset > 0 {
+            for card in simulated.iter_mut() {
+                if card.due_date.is_some_and(|due| due <= day) {
+                    let state = Sm2State {
+                        repetitions: card.repetitions,
+                        interval_days: card.interval_days,
+                        ease: card.ease,
+                    };
+                    let (next, outcome) = state.review(quality, day);
+                    card.repetitions = next.repetitions;
+                    card.interval_days = next.interval_days;
+                    card.ease = next.ease;
+                    card.due_date = Some(outcome.next_due);
+                    total_reviews += 1;
+                }
+            }
+        }
+
+        points.push(ForecastPoint {
+            day,
+            learned: simulated
+                .iter()
+                .filter(|card| card.repetitions >= 3)
+                .count() as i32,
+            mastered: simulated
+                .iter()
+                .filter(|card| card.repetitions >= 5)
+                .count() as i32,
+            reviews: total_reviews,
+        });
+    }
+
+    points
+}
+
+/// Итоговый опыт по накопленным счётчикам.///
 /// Считается из того, что уже есть в базе, поэтому переживает
 /// пересчёт и не зависит от того, где был поставлен галочки.
 pub fn total_xp(
@@ -461,5 +532,70 @@ mod tests {
         assert_eq!(list.len(), 12);
         assert_eq!(list[0].id, "first-word");
         assert!(list.iter().all(|item| !item.achieved));
+    }
+
+    fn card(due: Option<&str>, repetitions: u32, interval: u32) -> SimCard {
+        SimCard {
+            repetitions,
+            interval_days: interval,
+            ease: 2.5,
+            due_date: due.map(|value| {
+                NaiveDate::parse_from_str(value, "%Y-%m-%d").expect("корректная дата")
+            }),
+        }
+    }
+
+    #[test]
+    fn forecast_without_cards_is_flat() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 24).unwrap();
+        let points = forecast(&[], today, 14, 4);
+        assert_eq!(points.len(), 15);
+        assert!(
+            points
+                .iter()
+                .all(|point| point.learned == 0 && point.reviews == 0)
+        );
+    }
+
+    #[test]
+    fn forecast_grows_learned_words() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 24).unwrap();
+        let cards = vec![card(Some("2026-09-24"), 0, 0)];
+        let points = forecast(&cards, today, 14, 4);
+
+        // Расписание SM-2 при оценке 4: повторы на 1-й, 2-й, затем 8-й день.
+        assert_eq!(points[0].learned, 0, "в первый день ещё не повторено");
+        assert_eq!(points[1].learned, 0, "после одного повторения");
+        assert_eq!(points[2].learned, 0, "после двух повторений");
+        assert_eq!(points[8].learned, 1, "на восьмой день слово в работе");
+        assert!(
+            points
+                .windows(2)
+                .all(|pair| pair[0].learned <= pair[1].learned)
+        );
+        assert!(
+            points
+                .windows(2)
+                .all(|pair| pair[0].reviews <= pair[1].reviews)
+        );
+    }
+
+    #[test]
+    fn forecast_respects_due_dates() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 24).unwrap();
+        // Карточка назначена на 25-е: сегодня её не трогаем.
+        let cards = vec![card(Some("2026-09-25"), 0, 0)];
+        let points = forecast(&cards, today, 1, 4);
+        assert_eq!(points[0].reviews, 0);
+        assert_eq!(points[1].reviews, 1);
+    }
+
+    #[test]
+    fn forecast_does_not_mutate_input() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 24).unwrap();
+        let cards = vec![card(Some("2026-09-24"), 0, 0)];
+        let before = cards.clone();
+        forecast(&cards, today, 7, 4);
+        assert_eq!(cards, before);
     }
 }

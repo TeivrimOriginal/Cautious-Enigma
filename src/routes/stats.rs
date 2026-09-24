@@ -42,6 +42,16 @@ pub struct StatsPage {
     pub level_title: String,
     pub xp_percent: u32,
     pub grammar_correct: i64,
+    pub forecast: Vec<ForecastView>,
+    pub forecast_text: String,
+}
+
+/// Столбик прогноза освоения.
+#[derive(Debug, Clone)]
+pub struct ForecastView {
+    pub label: String,
+    pub percent: i32,
+    pub learned: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -86,6 +96,8 @@ page_impl!(StatsPage {
     level_title: String,
     xp_percent: u32,
     grammar_correct: i64,
+    forecast: Vec<ForecastView>,
+    forecast_text: String,
 });
 
 /// Сколько карточек находится в каждой стадии освоения.
@@ -230,6 +242,40 @@ pub async fn index(State(state): State<AppState>, profile: Profile) -> AppResult
     page.level_title = level.title().to_string();
     page.xp_percent = level.percent;
     page.grammar_correct = totals.grammar_correct;
+
+    // Прогноз: считаем на копиях карточек, база не меняется.
+    let simulated: Vec<stats::SimCard> = cards
+        .iter()
+        .map(|row| stats::SimCard {
+            repetitions: row.repetitions.max(0) as u32,
+            interval_days: row.interval_days.max(0) as u32,
+            ease: row.ease,
+            due_date: row.due_date,
+        })
+        .collect();
+    let points = stats::forecast(&simulated, today, 14, 4);
+    let max_learned = points
+        .iter()
+        .map(|point| point.learned)
+        .max()
+        .unwrap_or(0)
+        .max(1);
+
+    page.forecast = points
+        .iter()
+        .map(|point| ForecastView {
+            label: point.day.format("%d.%m").to_string(),
+            percent: (point.learned * 100 / max_learned).min(100),
+            learned: point.learned,
+        })
+        .collect();
+    page.forecast_text = match (points.first(), points.last()) {
+        (Some(first), Some(last)) => format!(
+            "Через 14 дней в работе будет {} слов (сейчас {}), освоено — {}. Всего понадобится около {} повторений.",
+            last.learned, first.learned, last.mastered, last.reviews
+        ),
+        _ => String::new(),
+    };
 
     html(page)
 }

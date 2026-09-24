@@ -52,6 +52,16 @@
     })[ch]);
   }
 
+  /** Русское склонение: plural(2, ["слово", "слова", "слов"]) → «2 слова». */
+  function plural(count, forms) {
+    const n = Math.abs(count) % 100;
+    const n1 = n % 10;
+    if (n > 10 && n < 20) return forms[2];
+    if (n1 > 1 && n1 < 5) return forms[1];
+    if (n1 === 1) return forms[0];
+    return forms[2];
+  }
+
   function formatInterval(days) {
     if (days <= 0) return "сейчас";
     if (days === 1) return "через 1 день";
@@ -106,6 +116,7 @@
     unlocked: {},
     bestCombo: 0,
     goal: 20,
+    reminders: { enabled: false, time: "20:00" },
   });
 
   /** Комбо текущей сессии: растёт на верных ответах, сбрасывается на ошибке. */
@@ -845,6 +856,110 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * Напоминания о повторениях (Notification API)
+   * ------------------------------------------------------------------ */
+
+  const REMINDER_TIMES = ["18:00", "19:00", "20:00", "21:00"];
+
+  function reminders() {
+    return state.reminders || { enabled: false, time: "20:00" };
+  }
+
+  async function toggleReminders() {
+    if (!("Notification" in window)) {
+      toast("Браузер не поддерживает уведомления", "", "bad");
+      return;
+    }
+
+    const current = reminders();
+    if (current.enabled) {
+      state.reminders = { ...current, enabled: false };
+      saveState();
+      renderProfileBox();
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      toast("Разрешение не выдано", "Уведомления отключены в браузере", "bad");
+      return;
+    }
+
+    state.reminders = { ...current, enabled: true };
+    saveState();
+    scheduleReminder();
+    renderProfileBox();
+    toast("Напоминания включены", `Будем напоминать в ${state.reminders.time}`, "good");
+  }
+
+  function setReminderTime(value) {
+    state.reminders = { ...reminders(), time: value };
+    saveState();
+    scheduleReminder();
+  }
+
+  /** Планирует одно напоминание; после срабатывания — следующее на завтра. */
+  function scheduleReminder() {
+    const settings = reminders();
+    if (!settings.enabled) return;
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+    const [hours, minutes] = settings.time.split(":").map(Number);
+    const target = new Date();
+    target.setHours(hours, minutes, 0, 0);
+
+    let delay = target.getTime() - Date.now();
+    if (delay <= 0) delay += 86_400_000;
+    setTimeout(() => {
+      const due = dueCards().length;
+      if (due > 0) {
+        new Notification("LinguaRust", {
+          body: `К повторению ${due} карточек. Пять минут — и день закрыт.`,
+          icon: "icon.svg",
+          tag: "linguarust-review",
+        });
+      }
+      scheduleReminder();
+    }, delay);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Прогноз: симуляция SM-2 на будущие дни
+   * ------------------------------------------------------------------ */
+
+  /**
+   * Предсказывает прогресс, если отвечать «нормально» (оценка 4).
+   * Работает на копии карточек: реальные данные не меняются.
+   */
+  function forecast(days = 14) {
+    const simulated = state.cards.map((card) => ({ ...card }));
+    const points = [];
+    let totalReviews = 0;
+
+    for (let offset = 0; offset <= days; offset += 1) {
+      const day = addDays(today(), offset);
+
+      if (offset > 0) {
+        simulated.forEach((card) => {
+          if (card.dueDate && card.dueDate <= day) {
+            Object.assign(card, reviewCard(card, 4));
+            totalReviews += 1;
+          }
+        });
+      }
+
+      points.push({
+        day,
+        reviews: totalReviews,
+        learned: simulated.filter((card) => card.repetitions >= 3).length,
+        mastered: simulated.filter((card) => card.repetitions >= 5).length,
+      });
+    }
+
+    return points;
+  }
+
+  /* ------------------------------------------------------------------ *
    * Представления
    * ------------------------------------------------------------------ */
 
@@ -926,7 +1041,7 @@
         <h1 style="margin-bottom:4px">Привет, ${escapeHtml(state.profile.name)}!</h1>
         <p class="muted" style="margin-top:0">
           ${s.due > 0
-            ? `Сегодня к повторению — ${s.due} карточек. Повторения важнее новых слов: так лексика остаётся в памяти.`
+            ? `Сегодня к повторению — ${s.due} ${plural(s.due, ["карточка", "карточки", "карточек"])}. Повторения важнее новых слов: так лексика остаётся в памяти.`
             : "На сегодня всё повторено. Можно добавить новые слова или почитать текст."}
         </p>
         <div class="actions">
@@ -1286,6 +1401,32 @@
         }
       </section>`;
 
+    const points = forecast(14);
+    const maxLearned = Math.max(1, ...points.map((point) => point.learned));
+    const forecastPanel = `
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between">
+          <h3 style="margin:0">Прогноз на 14 дней</h3>
+          <span class="tag">если отвечать «нормально»</span>
+        </div>
+        <div class="chart">
+          ${points
+            .map((point) => {
+              const percent = Math.round((point.learned / maxLearned) * 100);
+              return `<div class="col" title="${point.day}: в работе ${point.learned}, повторений ${point.reviews}">
+                  <div class="bar" style="height:${percent}%"></div>
+                  <div class="label">${point.day.slice(8, 10)}.${point.day.slice(5, 7)}</div>
+                </div>`;
+            })
+            .join("")}
+        </div>
+        <p class="muted small">
+          Через 14 дней в работе будет ${points.at(-1).learned} ${plural(points.at(-1).learned, ["слово", "слова", "слов"])}
+          (сейчас ${points[0].learned}), освоено — ${points.at(-1).mastered}.
+          Всего понадобится около ${points.at(-1).reviews} ${plural(points.at(-1).reviews, ["повторения", "повторений", "повторений"])}.
+        </p>
+      </section>`;
+
     const unlocked = state.unlocked || {};
     const achievements = ACHIEVEMENTS.map((item) => {
       const achieved = Boolean(unlocked[item.id]);
@@ -1361,6 +1502,8 @@
 
       ${weakPanel}
 
+      ${forecastPanel}
+
       ${achievementsPanel}`;
   }
 
@@ -1395,18 +1538,35 @@
       return;
     }
     const s = stats();
+    const currentReminder = reminders();
     profileBox.innerHTML = `
       <button class="btn ghost small" id="theme" title="Сменить тему" aria-label="Сменить тему">
         ${currentTheme() === "dark" ? "☀️" : "🌙"}
       </button>
       <span class="badge">🔥 ${s.current} дн.</span>
       ${s.due > 0 ? `<span class="badge hot">${s.due} к повторению</span>` : ""}
+      <button class="btn ghost small" id="reminder" title="Напоминания о повторениях">
+        ${currentReminder.enabled ? "🔔" : "🔕"}
+      </button>
       <button class="btn ghost small" id="export" title="Скачать резервную копию">Экспорт</button>
       <button class="btn ghost small" id="import" title="Загрузить резервную копию">Импорт</button>
       <button class="btn ghost small" id="reset">Сбросить</button>
-      <input type="file" id="import-file" accept="application/json" hidden />`;
+      <input type="file" id="import-file" accept="application/json" hidden />
+      ${
+        currentReminder.enabled
+          ? `<select class="btn ghost small" id="reminder-time" title="Время напоминания">
+              ${REMINDER_TIMES.map(
+                (time) =>
+                  `<option value="${time}" ${time === currentReminder.time ? "selected" : ""}>${time}</option>`,
+              ).join("")}
+            </select>`
+          : ""
+      }`;
 
-    document.getElementById("theme").addEventListener("click", toggleTheme);
+    document.getElementById("reminder").addEventListener("click", toggleReminders);
+    document.getElementById("reminder-time")?.addEventListener("change", (event) =>
+      setReminderTime(event.target.value),
+    );
     document.getElementById("export").addEventListener("click", exportProgress);
     document.getElementById("import").addEventListener("click", () =>
       document.getElementById("import-file").click(),
@@ -1916,6 +2076,7 @@
 
     window.addEventListener("hashchange", route);
     initShortcuts();
+    scheduleReminder();
     route();
 
     // Офлайн-режим: работает только на https и localhost.
