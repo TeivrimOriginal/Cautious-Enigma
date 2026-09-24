@@ -262,3 +262,99 @@ crowded	переполненный	The metro is crowded in the morning.
 peaceful	мирный, спокойный	The village is peaceful at night.
 noisy	шумный	The street is noisy on weekends.
 gloomy	мрачный	The sky looks gloomy today.
+messy	грязный, беспорядочный	His desk is always messy.
+tidy	аккуратный	Keep the room tidy.
+empty	пустой	The box was almost empty.
+heavy	тяжёлый	This bag is too heavy to lift.
+light	лёгкий	I want something light for lunch.
+narrow	узкий	The street is too narrow for a car.
+wide	широкий	The river is very wide here.
+sharp	острый	Be careful, the knife is sharp.
+# --- Медицина и тело ---
+pain	боль	She felt a sharp pain in her back.
+fever	лихорадка	He has a high fever.
+cough	кашель	Her cough lasted a week.
+headache	головная боль	I have a terrible headache.
+pill	таблетка	Take one pill after breakfast.
+blood	кровь	He gave blood to the hospital.
+bone	кость	The doctor examined the broken bone.
+skin	кожа	The rash covers her arms and skin.
+operation	операция	The operation was successful.
+clinic	клиника	The clinic opens at eight.
+dentist	стоматолог	I visit the dentist twice a year.
+# --- Технологии: разработка ---
+algorithm	алгоритм	The algorithm finds the answer instantly.
+variable	переменная	Rename the variable to make it clear.
+function	функция	This function returns a list.
+bug	ошибка (в коде)	We fixed the bug before the release.
+release	релиз, выпуск	The last release broke the build.
+commit	коммит	Push your commits to the main branch.
+branch	ветка (git)	Create a branch for the new feature.
+database	база данных	The database stores all the data.
+backup	резервная копия	Make a backup before the upgrade.
+encryption	шифрование	Encryption protects your messages.
+login	вход в систему	Enter your login and password.
+logout	выход из системы	Always logout on a public computer.
+interface	интерфейс	The new interface is much cleaner.
+responsive	адаптивный	Our website is responsive and fast.
+# --- Договоры и деньги ---
+contract	договор	They signed a one-year contract.
+client	клиент	Our client asked for a discount.
+profit	прибыль	The company made a small profit last year.
+loss	убыток	A long winter caused a loss.
+revenue	выручка	Revenue grew by ten per cent.
+report	отчёт	She wrote a short report for the boss.
+presentation	презентация	The presentation lasted twenty minutes.
+strategy	стратегия	Their marketing strategy is simple and clear.
+goal	цель	Our goal is to help ten thousand learners.
+stakeholder	заинтересованная сторона	Every stakeholder wants a better product.
+# --- Дом и вещи ---
+needle	игла	Use a needle and thread to sew the button.
+button	кнопка, пуговица	Press the green button twice.
+towel	полотенце	Hang the towel on the shelf.
+soap	мыло	The soap smells like lavender.
+brush	щётка	Mum bought a new hair brush.
+shelf	полка	The keys are on the kitchen shelf.
+drawer	ящик	Keep the cables in the top drawer.
+blanket	одеяло	A warm blanket covered the chair.
+curtain	занавеска	Close the curtain before the sun rises.
+light bulb	лампочка	The light bulb burned out last night.
+# --- Путешествия: пейзажи ---
+harbor	гавань	The harbor was quiet in the morning.
+coast	побережье	We drove along the northern coast.
+island	остров	The island is only ten kilometres long.
+desert	пустыня	No trees grow in this dry desert.
+# --- Эмоции: оттенки ---
+ashamed	стыдящийся	He felt ashamed of his mistake.
+jealous	ревнивый	She is jealous of her cousin.
+anxious	тревожный	Parents often feel anxious before exams.
+calm	спокойный	Stay calm and speak slowly.
+nervous	нервный	I get nervous before a flight.
+bored	скучный, скучающий	The children were bored on a rainy day.
+impatient	нетерпеливый	The queue made everyone impatient.
+# --- Грамматика и учёба ---
+vocabulary	словарный запас	Reading increases your vocabulary.
+pronunciation	произношение	Her pronunciation is very clear.
+sentence	предложение	Write a sentence with the new word.
+spelling	правописание	Check the spelling in the dictionary.
+mistake	ошибка	Everyone makes mistakes when learning.
+rule	правило	Try to explain the rule in your own words.
+example	пример	Can you give me another example?
+meaning	значение, смысл	I do not understand the meaning of this word.
+context	контекст	The meaning depends on the context.
+fluent	свободно владеющий	She is fluent in three languages.
+# --- Глаголы: новые ---
+to fix	чинить, исправлять	Who can fix this broken chair?
+to build	строить	They built a new library last year.
+to break	ломать	Do not break the rules.
+to carry	нести, переносить	Can you carry this bag?
+to throw	бросать	Do not throw stones in the park.
+to catch	ловить, ловить	He runs fast to catch the bus.
+to keep	хранить, держать	Keep your keys on the shelf.
+to move	перемещаться	The clouds moved quickly across the sky.
+to turn	поворачивать	Turn left at the traffic light.
+to cross	переходить	Always cross at the green light.
+to reach	достигать	We reached the summit before sunset.
+to return	возвращаться	I will return the book tomorrow.
+to repeat	повторять	Could you repeat the question, please?
+to correct	исправлять	Correct the mistakes in red ink.

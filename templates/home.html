@@ -65,5 +65,21 @@
     <p class="muted small">Переведено слов по клику: {{ translations }}</p>
     <a class="btn ghost small" href="/reading">Открыть тексты</a>
   </div>
+  {% if let Some(word) = word_of_day %}
+    <div class="panel">
+      <span class="tag">Слово дня</span>
+      <h3 style="margin:8px 0 4px">{{ word.0 }}</h3>
+      <p style="margin:0 0 6px">{{ word.1 }}</p>
+      {% if !word.2.is_empty() %}
+        <p class="muted small" style="margin:0 0 10px">{{ word.2 }}</p>
+      {% endif %}
+      <form method="post" action="/cards">
+        <input type="hidden" name="front" value="{{ word.0 }}" />
+        <input type="hidden" name="back" value="{{ word.1 }}" />
+        <input type="hidden" name="example" value="{{ word.2 }}" />
+        <button class="btn ghost small" type="submit">В карточки</button>
+      </form>
+    </div>
+  {% endif %}
 </section>
 {% endblock %}

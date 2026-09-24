@@ -9,7 +9,7 @@ use tower_cookies::Cookies;
 use crate::auth::{self, MaybeProfile};
 use crate::error::{AppError, AppResult};
 use crate::routes::{NavContext, html, nav_context, page_impl, today};
-use crate::{AppState, queries, stats};
+use crate::{AppState, queries, seed, stats};
 
 #[derive(Debug, askama::Template)]
 #[template(path = "welcome.html")]
@@ -47,6 +47,7 @@ pub struct Dashboard {
     pub accuracy_text: String,
     pub longest: u32,
     pub bars: Vec<DayBar>,
+    pub word_of_day: Option<(String, String, String)>,
 }
 
 page_impl!(Dashboard {
@@ -61,6 +62,7 @@ page_impl!(Dashboard {
     accuracy_text: String,
     longest: u32,
     bars: Vec<DayBar>,
+    word_of_day: Option<(String, String, String)>,
 });
 
 /// Столбик графика активности за последние дни.
@@ -103,6 +105,13 @@ pub async fn index(
             page.accuracy_text = format!("{:.1}", page.accuracy);
             page.longest = stats::longest_streak(&days);
             page.bars = build_bars(&activity);
+            page.word_of_day = seed::word_of_the_day(today()).map(|entry| {
+                (
+                    entry.front.clone(),
+                    entry.back.clone(),
+                    entry.example.clone().unwrap_or_default(),
+                )
+            });
             html(page)
         }
     }

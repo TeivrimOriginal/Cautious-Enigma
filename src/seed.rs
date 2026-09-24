@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use chrono::NaiveDate;
 use serde::Deserialize;
 use sqlx::PgPool;
 
@@ -107,6 +108,36 @@ pub fn lookup(word: &str) -> Option<&'static DictionaryEntry> {
     candidate_forms(&key)
         .into_iter()
         .find_map(|form| dict.get(&form))
+}
+
+/// Все слова словаря без дублей, отсортированные по алфавиту.
+/// Фразовые глаголы индексируются дважды (с «to» и без), поэтому
+/// повторы по `front` схлопываются.
+pub fn entries() -> &'static Vec<&'static DictionaryEntry> {
+    static ENTRIES: OnceLock<Vec<&'static DictionaryEntry>> = OnceLock::new();
+    ENTRIES.get_or_init(|| {
+        let mut unique: HashMap<&str, &DictionaryEntry> = HashMap::new();
+        for entry in dictionary().values() {
+            unique.entry(entry.front.as_str()).or_insert(entry);
+        }
+        let mut list: Vec<&DictionaryEntry> = unique.into_values().collect();
+        list.sort_by_key(|entry| entry.front.to_lowercase());
+        list
+    })
+}
+
+/// Слово дня: стабильный выбор на основе номера дня в году,
+/// чтобы у всех пользователей в один день было одинаковое слово.
+pub fn word_of_the_day(today: NaiveDate) -> Option<&'static DictionaryEntry> {
+    use chrono::Datelike;
+
+    let list = entries();
+    if list.is_empty() {
+        return None;
+    }
+    let first_day = NaiveDate::from_ymd_opt(today.year(), 1, 1).unwrap_or(today);
+    let day_of_year = (today - first_day).num_days() as usize;
+    list.get(day_of_year % list.len()).copied()
 }
 
 /// Приводит слово к ключу словаря: нижний регистр, без пунктуации по краям.
@@ -280,6 +311,31 @@ mod tests {
         };
         assert_eq!(text.paragraphs().len(), 2);
         assert_eq!(text.word_count(), 4);
+    }
+
+    #[test]
+    fn entries_are_unique_and_sorted() {
+        let list = entries();
+        assert!(list.len() > 200);
+        let mut sorted = list.clone();
+        sorted.sort_by_key(|entry| entry.front.to_lowercase());
+        assert_eq!(list.len(), sorted.len(), "дубликатов быть не должно");
+        for pair in list.windows(2) {
+            assert!(
+                pair[0].front.to_lowercase() <= pair[1].front.to_lowercase(),
+                "порядок нарушен: {} перед {}",
+                pair[0].front,
+                pair[1].front
+            );
+        }
+    }
+
+    #[test]
+    fn word_of_the_day_is_stable() {
+        let day = NaiveDate::from_ymd_opt(2026, 9, 24).unwrap();
+        let first = word_of_the_day(day).expect("словарь не пуст");
+        let second = word_of_the_day(day).expect("словарь не пуст");
+        assert_eq!(first.front, second.front);
     }
 
     #[test]

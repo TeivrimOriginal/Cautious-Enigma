@@ -261,3 +261,14 @@ pub async fn word_in_cards(pool: &PgPool, profile_id: Uuid, front: &str) -> AppR
     .await?;
     Ok(exists)
 }
+
+/// Все слова карточек профиля — одним запросом, чтобы не делать
+/// отдельную проверку на каждое слово словаря.
+pub async fn card_fronts(pool: &PgPool, profile_id: Uuid) -> AppResult<Vec<String>> {
+    Ok(
+        sqlx::query_scalar("SELECT front FROM cards WHERE profile_id = $1")
+            .bind(profile_id)
+            .fetch_all(pool)
+            .await?,
+    )
+}

@@ -104,7 +104,7 @@
    * Данные: словарь, тексты, упражнения
    * ------------------------------------------------------------------ */
 
-  const data = { dictionary: new Map(), texts: [], exercises: [] };
+  const data = { dictionary: new Map(), entries: [], texts: [], exercises: [] };
 
   async function loadData() {
     const [tsv, texts, grammar] = await Promise.all([
@@ -113,6 +113,8 @@
       fetch("data/grammar.json").then((r) => r.json()),
     ]);
     data.dictionary = buildDictionary(tsv);
+    data.entries = [...new Map([...data.dictionary.values()].map((entry) => [entry.front, entry])).values()]
+      .sort((a, b) => a.front.toLowerCase().localeCompare(b.front.toLowerCase()));
     data.texts = texts;
     data.exercises = grammar;
   }
@@ -165,6 +167,15 @@
     const key = normalize(raw);
     if (!key) return null;
     return data.dictionary.get(key) || candidateForms(key).map((f) => data.dictionary.get(f)).find(Boolean) || null;
+  }
+
+  /** Слово дня: стабильный выбор по номеру дня в году. */
+  function wordOfTheDay() {
+    if (!data.entries.length) return null;
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 1);
+    const dayOfYear = Math.floor((now - start) / 86400000);
+    return data.entries[dayOfYear % data.entries.length];
   }
 
   /* ------------------------------------------------------------------ *
@@ -419,6 +430,82 @@
       </section>`;
   }
 
+  function renderDictionary() {
+    const wotd = wordOfTheDay();
+    const inCards = (front) => state.cards.some((card) => normalize(card.front) === normalize(front));
+
+    const card = wotd
+      ? `<section class="panel" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px">
+            <span class="tag">Слово дня</span>
+            <h2 style="margin:8px 0 4px">${escapeHtml(wotd.front)}</h2>
+            <p style="margin:0;font-size:18px">${escapeHtml(wotd.back)}</p>
+            ${wotd.example ? `<p class="muted small" style="margin:6px 0 0">${escapeHtml(wotd.example)}</p>` : ""}
+          </div>
+          ${
+            inCards(wotd.front)
+              ? '<span class="tag ok">уже в карточках</span>'
+              : `<button class="btn" data-add-front="${escapeHtml(wotd.front)}">В карточки</button>`
+          }
+        </section>`
+      : "";
+
+    const rows = data.entries
+      .map((entry) => {
+        const known = inCards(entry.front);
+        return `<li data-front="${escapeHtml(entry.front.toLowerCase())}" data-back="${escapeHtml(entry.back.toLowerCase())}">
+            <div class="card-front">${escapeHtml(entry.front)}</div>
+            <div class="card-back">
+              ${escapeHtml(entry.back)}
+              ${entry.example ? `<div class="muted small">${escapeHtml(entry.example)}</div>` : ""}
+            </div>
+            ${
+              known
+                ? '<span class="tag ok">в карточках</span>'
+                : `<button class="btn ghost small" data-add-front="${escapeHtml(entry.front)}">В карточки</button>`
+            }
+          </li>`;
+      })
+      .join("");
+
+    return `
+      ${card}
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between">
+          <h1 style="margin:0">Словарь</h1>
+          <span class="tag">слов: ${data.entries.length}</span>
+        </div>
+        <div class="actions">
+          <input type="text" id="dict-search" placeholder="Поиск по английскому или русскому…"
+                 style="flex:1;min-width:220px" autocomplete="off" />
+          <span class="muted small" id="dict-count">${data.entries.length}</span>
+        </div>
+        <ul class="card-list" id="dict-list">${rows}</ul>
+      </section>`;
+  }
+
+  function initDictionary() {
+    const search = document.getElementById("dict-search");
+    if (!search) return;
+
+    const apply = () => {
+      const needle = search.value.trim().toLowerCase();
+      let visible = 0;
+      document.querySelectorAll("#dict-list li").forEach((item) => {
+        const match =
+          !needle ||
+          item.dataset.front.includes(needle) ||
+          item.dataset.back.includes(needle);
+        item.hidden = !match;
+        if (match) visible += 1;
+      });
+      document.getElementById("dict-count").textContent = String(visible);
+    };
+
+    search.addEventListener("input", apply);
+    search.focus();
+  }
+
   function renderReading() {
     const cards = data.texts
       .map(
@@ -577,6 +664,7 @@
   const routes = [
     { pattern: /^#?\/?$/, view: "home" },
     { pattern: /^#\/cards$/, view: "cards" },
+    { pattern: /^#\/dictionary$/, view: "dictionary" },
     { pattern: /^#\/reading$/, view: "reading" },
     { pattern: /^#\/reading\/(.+)$/, view: "readingText" },
     { pattern: /^#\/grammar(?:=(\d+))?$/, view: "grammar" },
@@ -637,6 +725,10 @@
       case "reading":
         app.innerHTML = renderReading();
         break;
+      case "dictionary":
+        app.innerHTML = renderDictionary();
+        initDictionary();
+        break;
       case "readingText":
         app.innerHTML = renderReadingText(param);
         initReader();
@@ -696,6 +788,17 @@
       if (card && confirm(`Удалить карточку «${card.front}»?`)) {
         removeCard(card.id);
         route();
+      }
+      return;
+    }
+
+    const addFromDictionary = event.target.closest("[data-add-front]");
+    if (addFromDictionary) {
+      const entry = lookupWord(addFromDictionary.dataset.addFront);
+      if (entry) {
+        const added = addCard(entry.front, entry.back, entry.example);
+        addFromDictionary.textContent = added ? "Добавлено ✓" : "Уже было";
+        addFromDictionary.disabled = true;
       }
       return;
     }
@@ -861,6 +964,13 @@
 
     window.addEventListener("hashchange", route);
     route();
+
+    // Офлайн-режим: работает только на https и localhost.
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("sw.js").catch((err) => {
+        console.warn("service worker не зарегистрирован", err);
+      });
+    }
   }
 
   start();

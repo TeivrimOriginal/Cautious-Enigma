@@ -1,0 +1,20 @@
+{
+  "name": "LinguaRust — изучение английского языка",
+  "short_name": "LinguaRust",
+  "description": "Карточки с интервальным повторением, чтение с переводом по клику, грамматика и статистика.",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f6fa",
+  "theme_color": "#3b5bdb",
+  "categories": ["education"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

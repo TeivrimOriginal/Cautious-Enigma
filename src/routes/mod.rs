@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod cards;
+pub mod dictionary;
 pub mod grammar;
 pub mod home;
 pub mod reading;

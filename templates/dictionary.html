@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% if let Some(word_of_day) = word_of_day %}
+  <section class="panel" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+    <div style="flex:1;min-width:220px">
+      <span class="tag">Слово дня</span>
+      <h2 style="margin:8px 0 4px">{{ word_of_day.0 }}</h2>
+      <p style="margin:0;font-size:18px">{{ word_of_day.1 }}</p>
+      {% if !word_of_day.2.is_empty() %}
+        <p class="muted small" style="margin:6px 0 0">{{ word_of_day.2 }}</p>
+      {% endif %}
+    </div>
+    <form method="post" action="/cards">
+      <input type="hidden" name="front" value="{{ word_of_day.0 }}" />
+      <input type="hidden" name="back" value="{{ word_of_day.1 }}" />
+      <input type="hidden" name="example" value="{{ word_of_day.2 }}" />
+      <button class="btn" type="submit">В карточки</button>
+    </form>
+  </section>
+{% endif %}
+
+<section class="panel">
+  <div class="actions" style="justify-content:space-between">
+    <h1 style="margin:0">Словарь</h1>
+    <span class="tag">слов: {{ total }}</span>
+  </div>
+
+  <form method="get" action="/dictionary" class="actions">
+    <input
+      type="text"
+      name="q"
+      value="{{ query }}"
+      placeholder="Поиск по английскому или русскому…"
+      style="flex:1;min-width:220px"
+    />
+    <button class="btn" type="submit">Найти</button>
+    {% if !query.is_empty() %}
+      <a class="btn ghost" href="/dictionary">Сбросить</a>
+    {% endif %}
+  </form>
+
+  {% if words.is_empty() %}
+    <p class="muted">Ничего не нашлось. Попробуйте другое слово.</p>
+  {% else %}
+    <ul class="card-list">
+      {% for word in words %}
+        <li>
+          <div class="card-front">{{ word.front }}</div>
+          <div class="card-back">
+            {{ word.back }}
+            {% if !word.example.is_empty() %}
+              <div class="muted small">{{ word.example }}</div>
+            {% endif %}
+          </div>
+          {% if word.in_cards %}
+            <span class="tag ok">в карточках</span>
+          {% else %}
+            <form method="post" action="/cards">
+              <input type="hidden" name="front" value="{{ word.front }}" />
+              <input type="hidden" name="back" value="{{ word.back }}" />
+              <input type="hidden" name="example" value="{{ word.example }}" />
+              <button class="btn ghost small" type="submit">В карточки</button>
+            </form>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+    {% if words.len() >= 300 %}
+      <p class="muted small">Показаны первые 300 слов — уточните запрос, чтобы найти нужное.</p>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

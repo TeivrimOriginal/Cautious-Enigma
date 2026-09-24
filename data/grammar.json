@@ -138,5 +138,54 @@
     "options": ["learn / study", "to learn / studying", "learning / study", "learning / to study"],
     "correct_index": 2,
     "explanation": "После enjoy и don't mind используется герундий (V-ing)."
+  },
+  {
+    "topic": "Used to",
+    "prompt": "I ___ live in a small village, but now I live in the capital.",
+    "options": ["use", "used to", "am used to", "was using"],
+    "correct_index": 1,
+    "explanation": "Used to описывает состояние или действие в прошлом, которого больше нет."
+  },
+  {
+    "topic": "Since and For",
+    "prompt": "She has worked for this company ___ March 2019.",
+    "options": ["for", "since", "during", "from"],
+    "correct_index": 1,
+    "explanation": "Since указывает на точку во времени (since March 2019), for — на период (for two years)."
+  },
+  {
+    "topic": "Zero Article",
+    "prompt": "___ life is short, so we should travel while we can.",
+    "options": ["A", "The", "—", "An"],
+    "correct_index": 2,
+    "explanation": "Перед абстрактными неисчисляемыми существительными в обобщающем смысле артикль не ставится."
+  },
+  {
+    "topic": "Question Tags",
+    "prompt": "Your sister sings beautifully, ___?",
+    "options": ["don't she", "doesn't she", "isn't she", "is she"],
+    "correct_index": 1,
+    "explanation": "Вопросительный хвост повторяет форму глагола: she sings → doesn't she."
+  },
+  {
+    "topic": "Despite / In spite of",
+    "prompt": "___ the heavy rain, we went for a long walk.",
+    "options": ["Because", "Although", "Despite", "However"],
+    "correct_index": 2,
+    "explanation": "Despite и in spite of — предлоги, после них нужен существительное или герундий."
+  },
+  {
+    "topic": "So and Such",
+    "prompt": "It was ___ cold that the pipes froze.",
+    "options": ["so", "such", "too", "very"],
+    "correct_index": 1,
+    "explanation": "Конструкция such + прилагательное + that: it was such a cold day that…"
+  },
+  {
+    "topic": "Phrasal Verbs",
+    "prompt": "Please ___ the lights when you leave the office.",
+    "options": ["turn off", "turn on", "turn up", "turn into"],
+    "correct_index": 0,
+    "explanation": "Turn off — выключить. Turn on — включить, turn up — сделать громче."
   }
 ]
