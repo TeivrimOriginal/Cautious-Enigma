@@ -48,6 +48,15 @@ pub struct Dashboard {
     pub longest: u32,
     pub bars: Vec<DayBar>,
     pub word_of_day: Option<(String, String, String)>,
+    pub level: u32,
+    pub level_title: String,
+    pub xp: i32,
+    pub xp_in_level: i32,
+    pub xp_needed: i32,
+    pub xp_percent: u32,
+    pub daily_goal: i32,
+    pub goal_percent: i32,
+    pub goal_done: bool,
 }
 
 page_impl!(Dashboard {
@@ -63,6 +72,15 @@ page_impl!(Dashboard {
     longest: u32,
     bars: Vec<DayBar>,
     word_of_day: Option<(String, String, String)>,
+    level: u32,
+    level_title: String,
+    xp: i32,
+    xp_in_level: i32,
+    xp_needed: i32,
+    xp_percent: u32,
+    daily_goal: i32,
+    goal_percent: i32,
+    goal_done: bool,
 });
 
 /// Столбик графика активности за последние дни.
@@ -112,6 +130,31 @@ pub async fn index(
                     entry.example.clone().unwrap_or_default(),
                 )
             });
+
+            // Опыт, уровень и дневная цель.
+            let totals = queries::xp_totals(&state.db, profile.id).await?;
+            let xp = stats::total_xp(
+                totals.successful_reviews,
+                totals.failed_reviews,
+                totals.cards,
+                totals.grammar_total,
+                totals.grammar_correct,
+            );
+            let level = stats::level_progress(xp);
+            let goal = queries::daily_goal(&state.db, profile.id).await?.max(1);
+            let goal_percent =
+                ((summary.reviews_today as f64 / goal as f64) * 100.0).round() as i32;
+
+            page.xp = xp;
+            page.level = level.level;
+            page.level_title = level.title().to_string();
+            page.xp_in_level = level.in_level;
+            page.xp_needed = level.needed;
+            page.xp_percent = level.percent;
+            page.daily_goal = goal;
+            page.goal_percent = goal_percent.min(100);
+            page.goal_done = summary.reviews_today >= goal as i64;
+
             html(page)
         }
     }

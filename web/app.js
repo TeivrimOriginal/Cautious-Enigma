@@ -103,7 +103,13 @@
     reviews: [],
     grammar: [],
     knownWords: [],
+    unlocked: {},
+    bestCombo: 0,
+    goal: 20,
   });
+
+  /** Комбо текущей сессии: растёт на верных ответах, сбрасывается на ошибке. */
+  let sessionCombo = 0;
 
   let state = emptyState();
 
@@ -259,15 +265,31 @@
       createdAt: new Date().toISOString(),
     });
     saveState();
+    checkAchievements();
     return true;
   }
 
   function gradeCard(cardId, quality) {
     const index = state.cards.findIndex((card) => card.id === cardId);
     if (index < 0) return;
-    state.cards[index] = reviewCard(state.cards[index], quality);
+
+    const gained = reviewCard(state.cards[index], quality);
+    state.cards[index] = gained;
     state.reviews.push({ cardId, quality, day: today() });
     saveState();
+
+    // Комбо и награда за ответ.
+    if (quality >= 3) {
+      sessionCombo += 1;
+      state.bestCombo = Math.max(state.bestCombo || 0, sessionCombo);
+      saveState();
+      toast(`+${XP.reviewSuccess} XP`, sessionCombo > 2 ? `🔥 серия ${sessionCombo}` : "", "good");
+    } else {
+      sessionCombo = 0;
+      toast(`+${XP.reviewFail} XP`, "серия прервана", "bad");
+    }
+
+    checkAchievements();
   }
 
   function removeCard(cardId) {
@@ -390,6 +412,166 @@
   let csvMessage = "";
 
   /* ------------------------------------------------------------------ *
+   * Опыт, уровни, достижения и комбо
+   *
+   * Значения XP и условия достижений продублированы из src/stats.rs,
+   * чтобы обе версии считали прогресс одинаково.
+   * ------------------------------------------------------------------ */
+
+  const XP = {
+    reviewSuccess: 10,
+    reviewFail: 2,
+    newCard: 5,
+    grammarCorrect: 15,
+    grammarWrong: 3,
+  };
+
+  const LEVEL_FIRST = 100;
+  const LEVEL_STEP = 50;
+
+  function xpTotals() {
+    const successful = state.reviews.filter((review) => review.quality >= 3).length;
+    const failed = state.reviews.length - successful;
+    const grammarTotal = state.grammar.length;
+    const grammarCorrect = state.grammar.filter((answer) => answer.correct).length;
+    const cards = state.cards.length;
+
+    return {
+      successful,
+      failed,
+      cards,
+      grammarTotal,
+      grammarCorrect,
+      xp:
+        successful * XP.reviewSuccess +
+        failed * XP.reviewFail +
+        cards * XP.newCard +
+        grammarCorrect * XP.grammarCorrect +
+        (grammarTotal - grammarCorrect) * XP.grammarWrong,
+    };
+  }
+
+  function levelProgress(xp) {
+    let level = 1;
+    let needed = LEVEL_FIRST;
+    let spent = 0;
+    while (Math.max(0, xp) - spent >= needed) {
+      spent += needed;
+      level += 1;
+      needed += LEVEL_STEP;
+    }
+    const inLevel = Math.max(0, xp) - spent;
+    return { level, inLevel, needed, percent: Math.min(100, Math.round((inLevel / needed) * 100)) };
+  }
+
+  function levelTitle(level) {
+    if (level <= 1) return "Новичок";
+    if (level === 2) return "Ученик";
+    if (level <= 4) return "Практик";
+    if (level <= 6) return "Знаток";
+    if (level <= 9) return "Продвинутый";
+    return "Мастер";
+  }
+
+  const ACHIEVEMENTS = [
+    { id: "first-word", title: "Первые шаги", desc: "Добавить первую карточку", test: (i) => i.cards >= 1 },
+    { id: "ten-words", title: "Коллекционер", desc: "Собрать 10 карточек", test: (i) => i.cards >= 10 },
+    { id: "hundred-words", title: "Большой словарь", desc: "Собрать 100 карточек", test: (i) => i.cards >= 100 },
+    { id: "first-review", title: "Первое повторение", desc: "Ответить на первую карточку", test: (i) => i.reviews >= 1 },
+    { id: "fifty-reviews", title: "Полсотни повторений", desc: "Сделать 50 повторений", test: (i) => i.reviews >= 50 },
+    { id: "two-hundred-reviews", title: "Двести повторений", desc: "Сделать 200 повторений", test: (i) => i.reviews >= 200 },
+    {
+      id: "week-streak",
+      title: "Неделя подряд",
+      desc: "Заниматься 7 дней без перерыва",
+      test: (i) => i.currentStreak >= 7 || i.longestStreak >= 7,
+    },
+    {
+      id: "month-streak",
+      title: "Месяц дисциплины",
+      desc: "Заниматься 30 дней без перерыва",
+      test: (i) => i.currentStreak >= 30 || i.longestStreak >= 30,
+    },
+    {
+      id: "sharp-mind",
+      title: "Точность 90%",
+      desc: "Держать точность выше 90% (от 20 ответов)",
+      test: (i) => i.reviews >= 20 && i.accuracy >= 90,
+    },
+    { id: "combo-10", title: "Серия из десяти", desc: "10 правильных ответов подряд", test: (i) => i.bestCombo >= 10 },
+    {
+      id: "grammar-20",
+      title: "Грамматика",
+      desc: "20 правильных ответов в упражнениях",
+      test: (i) => i.grammarCorrect >= 20,
+    },
+    {
+      id: "weak-fixed",
+      title: "Из сложного в простое",
+      desc: "Тренировать 5 слабых слов и ответить на них верно",
+      test: (i) => i.weakFixed >= 5,
+    },
+  ];
+
+  /** Входные данные для проверки достижений (те же поля, что в Rust). */
+  function achievementInput() {
+    const totals = xpTotals();
+    const s = stats();
+    const weak = weakWords(100);
+    return {
+      cards: totals.cards,
+      reviews: s.totalReviews,
+      successful: s.successful,
+      currentStreak: s.current,
+      longestStreak: s.longest,
+      grammarCorrect: totals.grammarCorrect,
+      translations: s.translations,
+      bestCombo: Math.max(state.bestCombo || 0, sessionCombo),
+      weakFixed: weak.filter((word) => {
+        const card = state.cards.find((item) => normalize(item.front) === normalize(word.front));
+        return card && card.repetitions > 0;
+      }).length,
+      accuracy: s.accuracy,
+    };
+  }
+
+  /** Проверяет новые достижения и показывает всплывашку. */
+  function checkAchievements() {
+    const input = achievementInput();
+    const unlocked = state.unlocked || (state.unlocked = {});
+
+    ACHIEVEMENTS.forEach((item) => {
+      if (!unlocked[item.id] && item.test(input)) {
+        unlocked[item.id] = today();
+        toast(`🏅 Достижение: ${item.title}`, `+${XP.reviewSuccess} XP`, "good");
+      }
+    });
+    saveState();
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Всплывающие уведомления
+   * ------------------------------------------------------------------ */
+
+  function toast(title, subtitle = "", kind = "") {
+    let host = document.getElementById("toasts");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "toasts";
+      document.body.appendChild(host);
+    }
+
+    const item = document.createElement("div");
+    item.className = `toast ${kind}`;
+    item.innerHTML = `<div class="toast-title">${escapeHtml(title)}</div>
+      ${subtitle ? `<div class="toast-sub">${escapeHtml(subtitle)}</div>` : ""}`;
+    host.appendChild(item);
+
+    setTimeout(() => item.classList.add("hide"), 2200);
+    setTimeout(() => item.remove(), 2800);
+  }
+
+  /* ------------------------------------------------------------------ *
    * Представления
    * ------------------------------------------------------------------ */
 
@@ -441,6 +623,31 @@
         </section>`
       : "";
 
+    const totals = xpTotals();
+    const level = levelProgress(totals.xp);
+    const goal = state.goal || 20;
+    const goalPercent = Math.min(100, Math.round((s.todayReviews / goal) * 100));
+    const goalDone = s.todayReviews >= goal;
+
+    const levelPanel = `
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between;align-items:flex-start">
+          <div>
+            <span class="tag">Уровень ${level.level} · ${levelTitle(level.level)}</span>
+            <h2 style="margin:8px 0 4px">${totals.xp} XP</h2>
+            <p class="muted small" style="margin:0">до следующего уровня: ${level.needed} − ${level.inLevel} XP</p>
+          </div>
+          <div style="text-align:right">
+            <span class="tag ${goalDone ? "ok" : ""}">${goalDone ? "Цель дня выполнена" : `Цель дня: ${goal}`}</span>
+            <div class="actions" style="justify-content:flex-end;margin-top:8px">
+              ${[10, 20, 50].map((value) => `<button class="btn small ${goal === value ? "" : "ghost"}" data-goal="${value}">${value}</button>`).join("")}
+            </div>
+          </div>
+        </div>
+        <div class="progress" style="margin-top:12px"><span style="width:${level.percent}%"></span></div>
+        <div class="progress" style="margin-top:6px"><span style="width:${goalPercent}%;background:var(--good)"></span></div>
+      </section>`;
+
     return `
       <section class="panel">
         <h1 style="margin-bottom:4px">Привет, ${escapeHtml(state.profile.name)}!</h1>
@@ -455,6 +662,8 @@
           <a class="btn ghost" href="#/grammar">Грамматика</a>
         </div>
       </section>
+
+      ${levelPanel}
 
       ${wordCard}
 
@@ -512,6 +721,7 @@
       ? `${weakOnly ? '<div class="notice">Режим тренировки слабых слов: <button class="btn ghost small" data-weak="off">выйти</button></div>' : ""}
       <section class="panel review-card">
           <p class="muted small" style="margin:0">Карточек к повторению: ${due.length}</p>
+          ${sessionCombo > 1 ? `<div class="combo">🔥 ${sessionCombo} подряд</div>` : ""}
           <div class="word">${escapeHtml(card.front)} ${speakButton(card.front)}</div>
           <details class="reveal">
             <summary class="btn ghost">Показать перевод</summary>
@@ -801,6 +1011,31 @@
         }
       </section>`;
 
+    const unlocked = state.unlocked || {};
+    const achievements = ACHIEVEMENTS.map((item) => {
+      const achieved = Boolean(unlocked[item.id]);
+      return `<div class="metric" style="border-color:${achieved ? "var(--good)" : "var(--border)"}">
+          <div class="label" style="color:${achieved ? "var(--good)" : "var(--muted)"}">
+            ${achieved ? "✓" : "○"} ${escapeHtml(item.title)}
+          </div>
+          <div class="small muted">${escapeHtml(item.desc)}</div>
+        </div>`;
+    }).join("");
+
+    const totals = xpTotals();
+    const level = levelProgress(totals.xp);
+    const earned = ACHIEVEMENTS.filter((item) => unlocked[item.id]).length;
+
+    const achievementsPanel = `
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between">
+          <h3 style="margin:0">Достижения</h3>
+          <span class="tag">${earned} из ${ACHIEVEMENTS.length} · уровень ${level.level} ${levelTitle(level.level)}</span>
+        </div>
+        <div class="progress" style="margin:10px 0 16px"><span style="width:${level.percent}%"></span></div>
+        <div class="grid cols-3">${achievements}</div>
+      </section>`;
+
     return `
       <section class="panel">
         <h1>Статистика</h1>
@@ -849,7 +1084,9 @@
           : '<p class="muted">Пока нет повторений — начните с карточек.</p>'}
       </section>
 
-      ${weakPanel}`;
+      ${weakPanel}
+
+      ${achievementsPanel}`;
   }
 
   /* ------------------------------------------------------------------ *
@@ -1047,6 +1284,14 @@
       return;
     }
 
+    const goalButton = event.target.closest("[data-goal]");
+    if (goalButton) {
+      state.goal = Number(goalButton.dataset.goal);
+      saveState();
+      route();
+      return;
+    }
+
     const filterButton = event.target.closest("[data-filter]");
     if (filterButton) {
       cardFilter = filterButton.dataset.filter;
@@ -1107,6 +1352,10 @@
 
     state.grammar.push({ exerciseId: index, correct, day: today() });
     saveState();
+
+    const xp = correct ? XP.grammarCorrect : XP.grammarWrong;
+    toast(`${correct ? "Верно" : "Неверно"}: +${xp} XP`, correct ? "" : "Разбор ошибки — внизу", correct ? "good" : "bad");
+    checkAchievements();
 
     feedback.innerHTML = `
       <div class="notice ${correct ? "ok" : "err"}">

@@ -116,11 +116,13 @@ pub struct GrammarCheckResponse {
     pub correct_index: usize,
     pub correct_option: String,
     pub explanation: String,
+    pub xp: i32,
 }
 
 /// `POST /api/grammar/check` — проверка ответа на упражнение.
 pub async fn check_grammar(
     State(state): State<AppState>,
+    MaybeProfile(profile): MaybeProfile,
     Json(request): Json<GrammarCheckRequest>,
 ) -> ApiResult<Json<GrammarCheckResponse>> {
     let exercise = queries::exercise_by_id(&state.db, request.id).await?;
@@ -130,10 +132,39 @@ pub async fn check_grammar(
         return Err(AppError::Internal("повреждённое упражнение".into()).into());
     };
 
+    let correct = request.answer == correct_index;
+
+    // Ответ попадает в журнал: из него считаются опыт и достижения.
+    if let Some(profile) = profile.as_ref() {
+        queries::log_grammar(&state.db, profile.id, exercise.id, correct).await?;
+    }
+
     Ok(Json(GrammarCheckResponse {
-        correct: request.answer == correct_index,
+        correct,
         correct_index,
         correct_option,
         explanation: exercise.explanation.unwrap_or_default(),
+        xp: crate::stats::grammar_xp(correct),
     }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GoalRequest {
+    pub goal: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GoalResponse {
+    pub goal: i32,
+}
+
+/// `POST /api/goal` — изменить дневную цель по количеству повторений.
+pub async fn set_goal(
+    State(state): State<AppState>,
+    profile: Profile,
+    Json(request): Json<GoalRequest>,
+) -> ApiResult<Json<GoalResponse>> {
+    let goal = request.goal.clamp(5, 100);
+    queries::set_daily_goal(&state.db, profile.id, goal).await?;
+    Ok(Json(GoalResponse { goal }))
 }

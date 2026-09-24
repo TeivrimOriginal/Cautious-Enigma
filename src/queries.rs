@@ -296,3 +296,67 @@ pub async fn card_fronts(pool: &PgPool, profile_id: Uuid) -> AppResult<Vec<Strin
             .await?,
     )
 }
+
+/* ------------------------------------------------------------------ *
+ * Игровые механики: опыт, цели, достижения
+ * ------------------------------------------------------------------ */
+
+#[derive(Debug, Clone, Copy, Default, sqlx::FromRow)]
+pub struct XpTotals {
+    pub successful_reviews: i64,
+    pub failed_reviews: i64,
+    pub cards: i64,
+    pub grammar_total: i64,
+    pub grammar_correct: i64,
+}
+
+/// Считает сырые счётчики для расчёта опыта.
+pub async fn xp_totals(pool: &PgPool, profile_id: Uuid) -> AppResult<XpTotals> {
+    Ok(sqlx::query_as::<_, XpTotals>(
+        "SELECT
+             (SELECT count(*) FILTER (WHERE quality >= 3) FROM review_log WHERE profile_id = $1) AS successful_reviews,
+             (SELECT count(*) FILTER (WHERE quality < 3)  FROM review_log WHERE profile_id = $1) AS failed_reviews,
+             (SELECT count(*) FROM cards WHERE profile_id = $1)                              AS cards,
+             (SELECT count(*) FROM grammar_log WHERE profile_id = $1)                        AS grammar_total,
+             (SELECT count(*) FILTER (WHERE correct) FROM grammar_log WHERE profile_id = $1)  AS grammar_correct",
+    )
+    .bind(profile_id)
+    .fetch_one(pool)
+    .await?)
+}
+
+/// Записывает ответ на упражнение (для опыта и достижений).
+pub async fn log_grammar(
+    pool: &PgPool,
+    profile_id: Uuid,
+    exercise_id: i64,
+    correct: bool,
+) -> AppResult<()> {
+    sqlx::query("INSERT INTO grammar_log (profile_id, exercise_id, correct) VALUES ($1, $2, $3)")
+        .bind(profile_id)
+        .bind(exercise_id)
+        .bind(correct)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn daily_goal(pool: &PgPool, profile_id: Uuid) -> AppResult<i32> {
+    Ok(
+        sqlx::query_scalar("SELECT daily_goal FROM profiles WHERE id = $1")
+            .bind(profile_id)
+            .fetch_optional(pool)
+            .await?
+            .unwrap_or(20),
+    )
+}
+
+pub async fn set_daily_goal(pool: &PgPool, profile_id: Uuid, goal: i32) -> AppResult<()> {
+    let goal = goal.clamp(5, 100);
+    sqlx::query("UPDATE profiles SET daily_goal = $1 WHERE id = $2")
+        .bind(goal)
+        .bind(profile_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}

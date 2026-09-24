@@ -62,6 +62,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/translate", get(api::translate))
         .route("/api/cards", post(api::add_card))
         .route("/api/grammar/check", post(api::check_grammar))
+        .route("/api/goal", post(api::set_goal))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .layer(CatchPanicLayer::custom(handle_panic))
         .layer(TraceLayer::new_for_http())

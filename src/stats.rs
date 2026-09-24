@@ -80,6 +80,215 @@ pub fn format_interval(days: i32) -> String {
     }
 }
 
+/* ------------------------------------------------------------------ *
+ * Опыт, уровни и достижения
+ * ------------------------------------------------------------------ */
+
+/// Награды за действия. Единый набор для серверной и статической версий.
+pub const XP_REVIEW_SUCCESS: i32 = 10;
+pub const XP_REVIEW_FAIL: i32 = 2;
+pub const XP_NEW_CARD: i32 = 5;
+pub const XP_GRAMMAR_CORRECT: i32 = 15;
+pub const XP_GRAMMAR_WRONG: i32 = 3;
+
+/// Сколько опыта нужно для первого уровня; каждая следующая дороже на 50.
+const XP_FIRST_LEVEL: i32 = 100;
+const XP_LEVEL_STEP: i32 = 50;
+
+/// Прогресс по уровню: сколько всего, сколько в текущем, сколько нужно.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LevelProgress {
+    pub level: u32,
+    pub in_level: i32,
+    pub needed: i32,
+    pub percent: u32,
+}
+
+impl LevelProgress {
+    /// Название уровня — даёт ощущение прогресса.
+    pub fn title(&self) -> &'static str {
+        match self.level {
+            0 | 1 => "Новичок",
+            2 => "Ученик",
+            3..=4 => "Практик",
+            5..=6 => "Знаток",
+            7..=9 => "Продвинутый",
+            _ => "Мастер",
+        }
+    }
+}
+
+/// Считает уровень по накопленному опыту.
+pub fn level_progress(xp: i32) -> LevelProgress {
+    let xp = xp.max(0);
+    let mut level = 1_u32;
+    let mut needed = XP_FIRST_LEVEL;
+    let mut spent = 0_i32;
+
+    while xp - spent >= needed {
+        spent += needed;
+        level += 1;
+        needed += XP_LEVEL_STEP;
+    }
+
+    let in_level = xp - spent;
+    let percent = ((in_level as f64 / needed as f64) * 100.0).round() as u32;
+
+    LevelProgress {
+        level,
+        in_level,
+        needed,
+        percent: percent.min(100),
+    }
+}
+
+/// Входные данные для проверки достижений.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AchievementInput {
+    pub cards: i64,
+    pub reviews: i64,
+    pub successful: i64,
+    pub current_streak: u32,
+    pub longest_streak: u32,
+    pub grammar_correct: i64,
+    pub translations: i64,
+    pub best_combo: u32,
+    pub weak_fixed: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Achievement {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub description: &'static str,
+    pub achieved: bool,
+}
+
+/// Список достижений с признаком получения. Порядок — от простых к сложным.
+pub fn achievements(input: &AchievementInput) -> Vec<Achievement> {
+    let accuracy = accuracy_percent(input.reviews, input.successful);
+    let list: [(&'static str, &'static str, &'static str, bool); 12] = [
+        (
+            "first-word",
+            "Первые шаги",
+            "Добавить первую карточку",
+            input.cards >= 1,
+        ),
+        (
+            "ten-words",
+            "Коллекционер",
+            "Собрать 10 карточек",
+            input.cards >= 10,
+        ),
+        (
+            "hundred-words",
+            "Большой словарь",
+            "Собрать 100 карточек",
+            input.cards >= 100,
+        ),
+        (
+            "first-review",
+            "Первое повторение",
+            "Ответить на первую карточку",
+            input.reviews >= 1,
+        ),
+        (
+            "fifty-reviews",
+            "Полсотни повторений",
+            "Сделать 50 повторений",
+            input.reviews >= 50,
+        ),
+        (
+            "two-hundred-reviews",
+            "Двести повторений",
+            "Сделать 200 повторений",
+            input.reviews >= 200,
+        ),
+        (
+            "week-streak",
+            "Неделя подряд",
+            "Заниматься 7 дней без перерыва",
+            input.current_streak >= 7 || input.longest_streak >= 7,
+        ),
+        (
+            "month-streak",
+            "Месяц дисциплины",
+            "Заниматься 30 дней без перерыва",
+            input.current_streak >= 30 || input.longest_streak >= 30,
+        ),
+        (
+            "sharp-mind",
+            "Точность 90%",
+            "Держать точность выше 90% (от 20 ответов)",
+            input.reviews >= 20 && accuracy >= 90.0,
+        ),
+        (
+            "combo-10",
+            "Серия из десяти",
+            "10 правильных ответов подряд",
+            input.best_combo >= 10,
+        ),
+        (
+            "grammar-20",
+            "Грамматика",
+            "20 правильных ответов в упражнениях",
+            input.grammar_correct >= 20,
+        ),
+        (
+            "weak-fixed",
+            "Из сложного в простое",
+            "Тренировать 5 слабых слов и ответить на них верно",
+            input.weak_fixed >= 5,
+        ),
+    ];
+
+    list.iter()
+        .map(|(id, title, description, achieved)| Achievement {
+            id,
+            title,
+            description,
+            achieved: *achieved,
+        })
+        .collect()
+}
+
+/// Сколько опыта даёт ответ на карточку.
+pub fn review_xp(quality: u8) -> i32 {
+    if quality >= 3 {
+        XP_REVIEW_SUCCESS
+    } else {
+        XP_REVIEW_FAIL
+    }
+}
+
+/// Сколько опыта даёт ответ на упражнение.
+pub fn grammar_xp(correct: bool) -> i32 {
+    if correct {
+        XP_GRAMMAR_CORRECT
+    } else {
+        XP_GRAMMAR_WRONG
+    }
+}
+
+/// Итоговый опыт по накопленным счётчикам.
+///
+/// Считается из того, что уже есть в базе, поэтому переживает
+/// пересчёт и не зависит от того, где был поставлен галочки.
+pub fn total_xp(
+    successful_reviews: i64,
+    failed_reviews: i64,
+    cards: i64,
+    grammar_total: i64,
+    grammar_correct: i64,
+) -> i32 {
+    let grammar_wrong = (grammar_total - grammar_correct).max(0);
+    (successful_reviews * i64::from(XP_REVIEW_SUCCESS)
+        + failed_reviews * i64::from(XP_REVIEW_FAIL)
+        + cards * i64::from(XP_NEW_CARD)
+        + grammar_correct * i64::from(XP_GRAMMAR_CORRECT)
+        + grammar_wrong * i64::from(XP_GRAMMAR_WRONG)) as i32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +364,102 @@ mod tests {
         assert_eq!(format_interval(1), "через 1 день");
         assert_eq!(format_interval(6), "через 6 дней");
         assert!(format_interval(90).contains("мес."));
+    }
+
+    #[test]
+    fn level_starts_at_one() {
+        let progress = level_progress(0);
+        assert_eq!(progress.level, 1);
+        assert_eq!(progress.in_level, 0);
+        assert_eq!(progress.needed, 100);
+        assert_eq!(progress.percent, 0);
+    }
+
+    #[test]
+    fn level_advances_when_threshold_reached() {
+        let progress = level_progress(100);
+        assert_eq!(progress.level, 2);
+        assert_eq!(progress.in_level, 0);
+        assert_eq!(progress.needed, 150);
+        assert_eq!(progress.percent, 0);
+    }
+
+    #[test]
+    fn level_progress_in_middle() {
+        let progress = level_progress(175);
+        assert_eq!(progress.level, 2);
+        assert_eq!(progress.in_level, 75);
+        assert_eq!(progress.needed, 150);
+        assert_eq!(progress.percent, 50);
+    }
+
+    #[test]
+    fn negative_xp_is_clamped() {
+        assert_eq!(level_progress(-50).level, 1);
+    }
+
+    #[test]
+    fn xp_rules_match_expected_rewards() {
+        assert_eq!(review_xp(5), XP_REVIEW_SUCCESS);
+        assert_eq!(review_xp(3), XP_REVIEW_SUCCESS);
+        assert_eq!(review_xp(1), XP_REVIEW_FAIL);
+        assert_eq!(grammar_xp(true), XP_GRAMMAR_CORRECT);
+        assert_eq!(grammar_xp(false), XP_GRAMMAR_WRONG);
+    }
+
+    #[test]
+    fn achievements_unlock_by_thresholds() {
+        let input = AchievementInput {
+            cards: 10,
+            reviews: 50,
+            successful: 48,
+            current_streak: 7,
+            grammar_correct: 20,
+            best_combo: 10,
+            ..Default::default()
+        };
+        let list = achievements(&input);
+
+        let achieved: Vec<&str> = list
+            .iter()
+            .filter(|item| item.achieved)
+            .map(|item| item.id)
+            .collect();
+
+        assert!(achieved.contains(&"first-word"));
+        assert!(achieved.contains(&"ten-words"));
+        assert!(achieved.contains(&"fifty-reviews"));
+        assert!(achieved.contains(&"week-streak"));
+        assert!(achieved.contains(&"sharp-mind"), "точность 96%");
+        assert!(achieved.contains(&"combo-10"));
+        assert!(achieved.contains(&"grammar-20"));
+        assert!(!achieved.contains(&"hundred-words"));
+        assert!(!achieved.contains(&"month-streak"));
+        assert!(!achieved.contains(&"weak-fixed"));
+    }
+
+    #[test]
+    fn accuracy_achievement_requires_enough_reviews() {
+        let input = AchievementInput {
+            reviews: 10,
+            successful: 10,
+            ..Default::default()
+        };
+        let list = achievements(&input);
+        // Пункт есть в списке всегда, но получен он только при 20+ ответах.
+        assert!(list.iter().any(|item| item.id == "sharp-mind"));
+        assert!(
+            !list
+                .iter()
+                .any(|item| item.id == "sharp-mind" && item.achieved)
+        );
+    }
+
+    #[test]
+    fn achievement_list_is_stable() {
+        let list = achievements(&AchievementInput::default());
+        assert_eq!(list.len(), 12);
+        assert_eq!(list[0].id, "first-word");
+        assert!(list.iter().all(|item| !item.achieved));
     }
 }

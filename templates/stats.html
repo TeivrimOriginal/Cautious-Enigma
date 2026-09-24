@@ -104,4 +104,24 @@
     <p class="muted small">Слова, которые вы забывали чаще всего. «Тренировать» повторяет их вне очереди.</p>
   {% endif %}
 </section>
+<section class="panel">
+  <div class="actions" style="justify-content: space-between;">
+    <h3 style="margin: 0;">Достижения</h3>
+    <span class="tag">Уровень {{ level }} · {{ level_title }} · {{ xp }} XP</span>
+  </div>
+  <div class="progress" style="margin: 10px 0 16px;"><span style="width: {{ xp_percent }}%"></span></div>
+  <div class="grid cols-3">
+    {% for item in achievements %}
+      <div class="metric" style="border-color: {% if item.achieved %}var(--good){% else %}var(--border){% endif %};">
+        <div class="label" style="color: {% if item.achieved %}var(--good){% else %}var(--muted){% endif %};">
+          {% if item.achieved %}✓{% else %}○{% endif %} {{ item.title }}
+        </div>
+        <div class="small muted">{{ item.description }}</div>
+      </div>
+    {% endfor %}
+  </div>
+  <p class="muted small" style="margin-bottom: 0;">
+    Правильных ответов в грамматике: {{ grammar_correct }}
+  </p>
+</section>
 {% endblock %}

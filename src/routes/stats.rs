@@ -36,6 +36,19 @@ pub struct StatsPage {
     pub buckets: Vec<Bucket>,
     pub history: Vec<DayRow>,
     pub weak: Vec<WeakView>,
+    pub achievements: Vec<AchievementView>,
+    pub xp: i32,
+    pub level: u32,
+    pub level_title: String,
+    pub xp_percent: u32,
+    pub grammar_correct: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct AchievementView {
+    pub title: &'static str,
+    pub description: &'static str,
+    pub achieved: bool,
 }
 
 /// Слабое слово для шаблона: счётчики ошибок уже посчитаны в SQL.
@@ -67,6 +80,12 @@ page_impl!(StatsPage {
     buckets: Vec<Bucket>,
     history: Vec<DayRow>,
     weak: Vec<WeakView>,
+    achievements: Vec<AchievementView>,
+    xp: i32,
+    level: u32,
+    level_title: String,
+    xp_percent: u32,
+    grammar_correct: i64,
 });
 
 /// Сколько карточек находится в каждой стадии освоения.
@@ -170,6 +189,47 @@ pub async fn index(State(state): State<AppState>, profile: Profile) -> AppResult
             mastery: stats::mastery_percent(word.repetitions),
         })
         .collect();
+
+    // Опыт, уровень и достижения.
+    let totals = queries::xp_totals(&state.db, profile.id).await?;
+    let xp = stats::total_xp(
+        totals.successful_reviews,
+        totals.failed_reviews,
+        totals.cards,
+        totals.grammar_total,
+        totals.grammar_correct,
+    );
+    let level = stats::level_progress(xp);
+
+    let weak = queries::weak_words(&state.db, profile.id, 100).await?;
+    let weak_fixed = weak.iter().filter(|word| word.repetitions > 0).count() as i64;
+
+    let input = stats::AchievementInput {
+        cards: summary.total_cards,
+        reviews: summary.total_reviews,
+        successful: summary.successful_reviews,
+        current_streak: page.current_streak,
+        longest_streak: page.longest,
+        grammar_correct: totals.grammar_correct,
+        translations: summary.translations,
+        // Комбо считается на клиенте: в серверной версии недоступно.
+        best_combo: 0,
+        weak_fixed,
+    };
+
+    page.achievements = stats::achievements(&input)
+        .into_iter()
+        .map(|item| AchievementView {
+            title: item.title,
+            description: item.description,
+            achieved: item.achieved,
+        })
+        .collect();
+    page.xp = xp;
+    page.level = level.level;
+    page.level_title = level.title().to_string();
+    page.xp_percent = level.percent;
+    page.grammar_correct = totals.grammar_correct;
 
     html(page)
 }

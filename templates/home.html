@@ -18,6 +18,27 @@
   </div>
 </section>
 
+<section class="panel">
+  <div class="actions" style="justify-content: space-between; align-items: center;">
+    <div>
+      <span class="tag">Уровень {{ level }} · {{ level_title }}</span>
+      <h2 style="margin: 8px 0 4px;">{{ xp }} XP</h2>
+      <p class="muted small" style="margin: 0;">
+        до следующего уровня: {{ xp_needed }} − {{ xp_in_level }} XP
+      </p>
+    </div>
+    <div style="text-align: right;">
+      <span class="tag {% if goal_done %}ok{% endif %}">
+        {% if goal_done %}Цель дня выполнена{% else %}Цель дня: {{ daily_goal }}{% endif %}
+      </span>
+      <p class="muted small" style="margin: 4px 0 0;">повторений сегодня</p>
+    </div>
+  </div>
+
+  <div class="progress" style="margin-top: 12px;"><span style="width: {{ xp_percent }}%"></span></div>
+  <div class="progress" style="margin-top: 6px;"><span style="width: {{ goal_percent }}%; background: var(--good)"></span></div>
+</section>
+
 <section class="grid cols-4">
   <div class="metric">
     <div class="value accent">{{ nav.streak }}</div>
