@@ -116,6 +116,7 @@
     unlocked: {},
     bestCombo: 0,
     goal: 20,
+    healed: [],
     reminders: { enabled: false, time: "20:00" },
   });
 
@@ -341,22 +342,26 @@
 
   function stats() {
     const days = [...new Set(state.reviews.map((review) => review.day))].sort();
+    // Защищённые дни тоже считаются активными: стрик через них не рвётся.
+    const healed = state.healed || [];
+    const active = new Set([...days, ...healed]);
     const day = today();
     const yesterday = addDays(day, -1);
 
     let current = 0;
-    let cursor = days.includes(day) ? day : days.includes(yesterday) ? yesterday : null;
+    let cursor = active.has(day) ? day : active.has(yesterday) ? yesterday : null;
     if (cursor) {
-      while (days.includes(cursor)) {
+      while (active.has(cursor)) {
         current += 1;
         cursor = addDays(cursor, -1);
       }
     }
 
+    const sortedActive = [...active].sort();
     let longest = 0;
     let run = 0;
-    days.forEach((currentDay, index) => {
-      run = index > 0 && daysBetween(days[index - 1], currentDay) === 1 ? run + 1 : 1;
+    sortedActive.forEach((currentDay, index) => {
+      run = index > 0 && daysBetween(sortedActive[index - 1], currentDay) === 1 ? run + 1 : 1;
       longest = Math.max(longest, run);
     });
 
@@ -377,9 +382,11 @@
       fresh: state.cards.length - learned,
       due: dueCards().length,
       todayReviews: byDay.get(day) || 0,
-      daysActive: days.length,
-      perDay: days.length ? totalReviews / days.length : 0,
+      daysActive: sortedActive.length,
+      perDay: sortedActive.length ? totalReviews / sortedActive.length : 0,
       byDay,
+      freezes: freezes(),
+      healed,
     };
   }
 
@@ -856,6 +863,42 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * Защита стрика: достижения дают «заморозки» пропущенного дня
+   * ------------------------------------------------------------------ */
+
+  const FREEZES_PER_TIER = 4;
+  const MAX_FREEZES = 3;
+
+  function earnedFreezes() {
+    const unlocked = Object.keys(state.unlocked || {}).length;
+    return Math.min(MAX_FREEZES, Math.floor(unlocked / FREEZES_PER_TIER));
+  }
+
+  /** Сколько защит доступно прямо сейчас: вычисляется, а не кэшируется. */
+  function freezes() {
+    return Math.max(0, earnedFreezes() - (state.healed || []).length);
+  }
+
+  /**
+   * Тратит одну защиту, если пропущен ровно один день подряд.
+   * Возвращает дату, которую удалось «закрыть», либо null.
+   */
+  function applyFreezeIfNeeded() {
+    if (freezes() <= 0) return null;
+
+    const days = new Set(state.reviews.map((review) => review.day));
+    const yesterday = addDays(today(), -1);
+    const beforeYesterday = addDays(today(), -2);
+
+    const gap = !days.has(yesterday) && days.has(beforeYesterday);
+    if (!gap) return null;
+
+    state.healed = [...(state.healed || []), yesterday];
+    saveState();
+    return yesterday;
+  }
+
+  /* ------------------------------------------------------------------ *
    * Напоминания о повторениях (Notification API)
    * ------------------------------------------------------------------ */
 
@@ -1095,6 +1138,52 @@
     { id: "learning", label: "В работе" },
   ];
 
+  /** Блок повторения отдельно: обновляется без перерисовки всей страницы. */
+  function renderReviewBlock() {
+    const due = dueCards();
+    const card = due[0];
+    const combo = sessionCombo > 1 ? `<div class="combo">🔥 ${sessionCombo} подряд</div>` : "";
+
+    if (!card) {
+      return `
+        <section class="panel" style="text-align:center">
+          <h2>На сегодня повторений нет 🎉</h2>
+          <p class="muted">Добавьте новые слова — они попадут в очередь на завтра.</p>
+          <a class="btn" href="#add">Добавить слово</a>
+        </section>`;
+    }
+
+    return `
+      ${weakOnly ? '<div class="notice">Режим тренировки слабых слов: <button class="btn ghost small" data-weak="off">выйти</button></div>' : ""}
+      <section class="panel review-card">
+        <p class="muted small" style="margin:0">Карточек к повторению: ${due.length}</p>
+        ${combo}
+        <div class="word">${escapeHtml(card.front)} ${speakButton(card.front)}</div>
+        <details class="reveal">
+          <summary class="btn ghost">Показать перевод</summary>
+          <div class="answer">${escapeHtml(card.back)}</div>
+          ${card.example ? `<div class="example">${escapeHtml(card.example)}</div>` : ""}
+        </details>
+        <div class="quality-grid">
+          ${REVIEW_QUALITIES.map(
+            (item) =>
+              `<button class="btn ${item.css}" data-grade="${item.value}" data-card="${card.id}">${item.label}</button>`,
+          ).join("")}
+        </div>
+        <p class="muted small" style="margin-top:14px;margin-bottom:0">
+          Пробел — показать ответ, клавиши 1–4 — оценка по порядку кнопок, Esc — пропустить.
+        </p>
+      </section>`;
+  }
+
+  /** Точечное обновление после оценки: список и шапка не перерисовываются. */
+  function refreshReviewFlow() {
+    const host = document.getElementById("review-host");
+    if (!host) return;
+    host.innerHTML = renderReviewBlock();
+    renderProfileBox();
+  }
+
   function renderCards() {
     const due = dueCards();
     const s = stats();
@@ -1106,33 +1195,6 @@
       if (cardFilter === "learning") return item.repetitions > 0;
       return true;
     });
-
-    const review = card
-      ? `${weakOnly ? '<div class="notice">Режим тренировки слабых слов: <button class="btn ghost small" data-weak="off">выйти</button></div>' : ""}
-      <section class="panel review-card">
-          <p class="muted small" style="margin:0">Карточек к повторению: ${due.length}</p>
-          ${sessionCombo > 1 ? `<div class="combo">🔥 ${sessionCombo} подряд</div>` : ""}
-          <div class="word">${escapeHtml(card.front)} ${speakButton(card.front)}</div>
-          <details class="reveal">
-            <summary class="btn ghost">Показать перевод</summary>
-            <div class="answer">${escapeHtml(card.back)}</div>
-            ${card.example ? `<div class="example">${escapeHtml(card.example)}</div>` : ""}
-          </details>
-          <div class="quality-grid">
-            ${REVIEW_QUALITIES.map(
-              (item) =>
-                `<button class="btn ${item.css}" data-grade="${item.value}" data-card="${card.id}">${item.label}</button>`,
-            ).join("")}
-          </div>
-          <p class="muted small" style="margin-top:14px;margin-bottom:0">
-            Пробел — показать ответ, клавиши 1–4 — оценка по порядку кнопок.
-          </p>
-        </section>`
-      : `<section class="panel" style="text-align:center">
-          <h2>На сегодня повторений нет 🎉</h2>
-          <p class="muted">Добавьте новые слова — они попадут в очередь на завтра.</p>
-          <a class="btn" href="#add">Добавить слово</a>
-        </section>`;
 
     const rows = [...filtered]
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -1151,7 +1213,8 @@
       .join("");
 
     return `
-      ${review}
+      <div id="review-host">${renderReviewBlock()}</div>
+
       <section class="panel" id="add">
         <h3>Новое слово</h3>
         <form id="add-form">
@@ -1375,6 +1438,17 @@
       })
       .join("");
 
+    const freezeNote =
+      s.healed.length > 0
+        ? `<p class="muted small" style="margin-top:8px">❄️ Защита стрика использована ${s.healed.length} ${plural(
+            s.healed.length,
+            ["раз", "раза", "раз"],
+          )}: ${s.healed
+            .slice(-3)
+            .map((value) => value.slice(5))
+            .join(", ")}. Каждые ${FREEZES_PER_TIER} достижения дают одну защиту (максимум ${MAX_FREEZES}).</p>`
+        : `<p class="muted small" style="margin-top:8px">❄️ Защита стрика: ${s.freezes} из ${MAX_FREEZES}. Каждые ${FREEZES_PER_TIER} достижения дают одну защиту — она закрывает один пропущенный день.</p>`;
+
     const weak = weakWords(8);
     const weakPanel = `
       <section class="panel">
@@ -1450,6 +1524,7 @@
         </div>
         <div class="progress" style="margin:10px 0 16px"><span style="width:${level.percent}%"></span></div>
         <div class="grid cols-3">${achievements}</div>
+        ${freezeNote}
       </section>`;
 
     return `
@@ -1544,6 +1619,7 @@
         ${currentTheme() === "dark" ? "☀️" : "🌙"}
       </button>
       <span class="badge">🔥 ${s.current} дн.</span>
+      ${s.freezes > 0 ? `<span class="badge" title="Защита стрика: достижения">❄️ ${s.freezes}</span>` : ""}
       ${s.due > 0 ? `<span class="badge hot">${s.due} к повторению</span>` : ""}
       <button class="btn ghost small" id="reminder" title="Напоминания о повторениях">
         ${currentReminder.enabled ? "🔔" : "🔕"}
@@ -1757,7 +1833,7 @@
     const grade = event.target.closest("[data-grade]");
     if (grade) {
       gradeCard(Number(grade.dataset.card), Number(grade.dataset.grade));
-      route();
+      refreshReviewFlow();
       return;
     }
 
@@ -2042,7 +2118,15 @@
           if (card) {
             event.preventDefault();
             gradeCard(card.id, quality);
-            route();
+            refreshReviewFlow();
+          }
+        } else if (event.key === "Escape") {
+          // Пропуск засчитывается как «забыто»: слово вернётся завтра.
+          const card = dueCards()[0];
+          if (card) {
+            event.preventDefault();
+            gradeCard(card.id, 1);
+            refreshReviewFlow();
           }
         }
         return;
@@ -2065,6 +2149,10 @@
 
   async function start() {
     loadState();
+    // Защита стрика применяется сразу: если вчера пропущен день, а позавчера
+    // была активность, тратим одну заморозку.
+    const healed = applyFreezeIfNeeded();
+    if (healed) toast("❄️ Стрик защищён", `Пропущенный день ${healed.slice(5)} закрыт`, "good");
     try {
       await loadData();
     } catch (err) {
