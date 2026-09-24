@@ -33,6 +33,32 @@
     },
   };
 
+  /* ---------- Произношение (Web Speech API) ---------- */
+
+  function speak(word) {
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(word);
+    utterance.lang = "en-GB";
+    utterance.rate = 0.95;
+
+    const voices = window.speechSynthesis.getVoices();
+    const english =
+      voices.find(
+        (voice) =>
+          voice.lang?.toLowerCase().startsWith("en") &&
+          /female|samantha|karen|zira/i.test(voice.name),
+      ) || voices.find((voice) => voice.lang?.toLowerCase().startsWith("en"));
+    if (english) utterance.voice = english;
+
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function speakButton(word) {
+    return `<button class="icon-btn" type="button" data-speak="${escapeHtml(word)}"
+      title="Произнести" aria-label="Произнести">🔊</button>`;
+  }
+
   /* ---------- Чтение: перевод слова по клику ---------- */
 
   function splitWords(root) {
@@ -100,6 +126,13 @@
     };
 
     document.addEventListener("click", async (event) => {
+      const speaker = event.target.closest("[data-speak]");
+      if (speaker) {
+        event.stopPropagation();
+        speak(speaker.dataset.speak);
+        return;
+      }
+
       const target = event.target.closest(".word");
       if (!target) {
         if (!event.target.closest(".popup")) hide();
@@ -124,7 +157,7 @@
           candidate.spans.forEach((span) => span.classList.add("known"));
         }
         popup.innerHTML = `
-          <h4>${escapeHtml(data.word)}</h4>
+          <h4>${escapeHtml(data.word)} ${speakButton(data.word)}</h4>
           <div class="translation">${escapeHtml(data.translation)}</div>
           ${data.example ? `<div class="example">${escapeHtml(data.example)}</div>` : ""}
           ${data.can_add ? '<button class="btn small" data-add>В карточки</button>' : ""}

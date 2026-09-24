@@ -64,6 +64,30 @@
   const mastery = (repetitions) =>
     repetitions <= 0 ? 0 : Math.min(repetitions, 5) * 20;
 
+  /* ------------------------------------------------------------------ *
+   * Произношение (Web Speech API, работает офлайн)
+   * ------------------------------------------------------------------ */
+
+  function speak(word) {
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(word);
+    utterance.lang = "en-GB";
+    utterance.rate = 0.95;
+
+    const voices = window.speechSynthesis.getVoices();
+    const english = voices.find(
+      (voice) => voice.lang?.toLowerCase().startsWith("en") && /female|samantha|karen|zira/i.test(voice.name),
+    ) || voices.find((voice) => voice.lang?.toLowerCase().startsWith("en"));
+    if (english) utterance.voice = english;
+
+    window.speechSynthesis.speak(utterance);
+  }
+
+  /** Кнопка озвучивания для карточек и словаря. */
+  const speakButton = (word) =>
+    `<button class="icon-btn" data-speak="${escapeHtml(word)}" title="Произнести" aria-label="Произнести">🔊</button>`;
+
   function accuracy(total, successful) {
     if (total <= 0) return 0;
     return Math.min(100, (successful / total) * 100);
@@ -457,7 +481,7 @@
       .map((entry) => {
         const known = inCards(entry.front);
         return `<li data-front="${escapeHtml(entry.front.toLowerCase())}" data-back="${escapeHtml(entry.back.toLowerCase())}">
-            <div class="card-front">${escapeHtml(entry.front)}</div>
+            <div class="card-front">${escapeHtml(entry.front)} ${speakButton(entry.front)}</div>
             <div class="card-back">
               ${escapeHtml(entry.back)}
               ${entry.example ? `<div class="muted small">${escapeHtml(entry.example)}</div>` : ""}
@@ -806,6 +830,13 @@
       return;
     }
 
+    const speakTarget = event.target.closest("[data-speak]");
+    if (speakTarget) {
+      event.stopPropagation();
+      speak(speakTarget.dataset.speak);
+      return;
+    }
+
     if (event.target.id === "grammar-check") {
       checkGrammar();
     }
@@ -917,7 +948,7 @@
         ? '<div class="popup-status">Уже в ваших карточках</div>'
         : '<button class="btn small" data-add-word>В карточки</button>';
 
-      showPopup(popup, word, `<h4>${escapeHtml(entry.front)}</h4>
+      showPopup(popup, word, `<h4>${escapeHtml(entry.front)} ${speakButton(entry.front)}</h4>
         <div class="translation">${escapeHtml(entry.back)}</div>
         ${entry.example ? `<div class="example">${escapeHtml(entry.example)}</div>` : ""}
         ${button}`);

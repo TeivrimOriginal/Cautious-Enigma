@@ -12,7 +12,11 @@
   {% let card = due[0] %}
   <section class="panel review-card">
     <p class="muted small" style="margin: 0;">Карточек к повторению: {{ due.len() }}</p>
-    <div class="word">{{ card.front }}</div>
+    <div class="word">
+      {{ card.front }}
+      <button class="icon-btn" type="button" data-speak="{{ card.front }}"
+        title="Произнести" aria-label="Произнести">🔊</button>
+    </div>
 
     <details class="reveal">
       <summary class="btn ghost">Показать перевод</summary>
@@ -71,7 +75,11 @@
     <ul class="card-list">
       {% for card in all %}
         <li>
-          <div class="card-front">{{ card.front }}</div>
+          <div class="card-front">
+            {{ card.front }}
+            <button class="icon-btn" type="button" data-speak="{{ card.front }}"
+              title="Произнести" aria-label="Произнести">🔊</button>
+          </div>
           <div class="card-back">{{ card.back }}</div>
           <div class="mastery" title="освоено на {{ card.mastery_text }}%"><span style="width: {{ card.mastery }}%"></span></div>
           <span class="tag {% if card.is_due %}due{% endif %}">{{ card.due_text }}</span>

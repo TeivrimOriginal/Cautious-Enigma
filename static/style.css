@@ -232,6 +232,31 @@ a:hover {
   font-size: 14px;
 }
 
+.icon-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 3px 6px;
+  vertical-align: middle;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.icon-btn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.card-front .icon-btn {
+  margin-left: 4px;
+}
+
+.popup h4 .icon-btn {
+  margin-left: 4px;
+}
+
 input[type="text"],
 input[type="number"],
 select,

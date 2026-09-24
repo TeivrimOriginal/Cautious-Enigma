@@ -6,6 +6,10 @@
 
 🌐 **Живая версия:** https://teivrimoriginal.github.io/Cautious-Enigma/
 
+[![CI](https://github.com/TeivrimOriginal/Cautious-Enigma/actions/workflows/ci.yml/badge.svg)](https://github.com/TeivrimOriginal/Cautious-Enigma/actions/workflows/ci.yml)
+[![Pages](https://github.com/TeivrimOriginal/Cautious-Enigma/actions/workflows/pages.yml/badge.svg)](https://github.com/TeivrimOriginal/Cautious-Enigma/actions/workflows/pages.yml)
+![Rust](https://img.shields.io/badge/rust-2024-2024?logo=rust)![License](https://img.shields.io/badge/license-MIT-blue)
+
 ## Две версии проекта
 
 | | Статическая (GitHub Pages) | Серверная |
@@ -41,7 +45,7 @@ SSR без клиентского фреймворка, типизированн
 | Раздел | Что делает |
 | --- | --- |
 | **Карточки** | Слова с переводом и примером, интервальное повторение по SM-2, четыре оценки ответа («Опять» → «Легко»), защита от дублей |
-| **Словарь** | 340 слов EN→RU с примерами, поиск по обоим языкам, «слово дня», добавление в карточки в один клик |
+| **Словарь** | 340 слов EN→RU с примерами, поиск по обоим языкам, «слово дня», озвучивание, добавление в карточки в один клик |
 | **Чтение** | 4 текста уровней A2–B2, клик по слову → перевод (в том числе фразы из двух слов и словоформы) → добавление в карточки |
 | **Грамматика** | 27 упражнений по темам, проверка ответа через JSON API с объяснением ошибки |
 | **Статистика** | Стрики (текущий и рекорд), точность, активность по дням, стадии освоения карточек |

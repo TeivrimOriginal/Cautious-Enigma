@@ -46,7 +46,11 @@
     <ul class="card-list">
       {% for word in words %}
         <li>
-          <div class="card-front">{{ word.front }}</div>
+          <div class="card-front">
+            {{ word.front }}
+            <button class="icon-btn" type="button" data-speak="{{ word.front }}"
+              title="Произнести" aria-label="Произнести">🔊</button>
+          </div>
           <div class="card-back">
             {{ word.back }}
             {% if !word.example.is_empty() %}
