@@ -764,6 +764,32 @@
     popup.hidden = true;
     document.body.appendChild(popup);
 
+    const spans = [...reader.querySelectorAll(".word")];
+
+    /** Какие слова подсветить при совпадении: одно или пара. */
+    const matchedSpans = (candidate, span) => {
+      if (!candidate.includes(" ")) return [span];
+      const index = spans.indexOf(span);
+      return candidate.split(" ")[0] === span.dataset.word
+        ? [span, spans[index + 1]].filter(Boolean)
+        : [spans[index - 1], span].filter(Boolean);
+    };
+
+    /** Сначала ищем фразы из двух слов («alarm clock»), затем одиночное слово. */
+    const lookupInContext = (span) => {
+      const index = spans.indexOf(span);
+      const candidates = [];
+      if (index > 0) candidates.push(`${spans[index - 1].dataset.word} ${span.dataset.word}`);
+      if (index >= 0) candidates.push(`${span.dataset.word} ${spans[index + 1]?.dataset.word ?? ""}`.trim());
+      candidates.push(span.dataset.word);
+
+      for (const candidate of candidates) {
+        const entry = lookupWord(candidate);
+        if (entry) return { entry, spans: matchedSpans(candidate, span) };
+      }
+      return null;
+    };
+
     document.addEventListener("click", (event) => {
       const word = event.target.closest(".word");
       if (!word) {
@@ -771,14 +797,16 @@
         return;
       }
 
-      const entry = lookupWord(word.dataset.word);
-      if (!entry) {
+      const found = lookupInContext(word);
+      if (!found) {
         showPopup(popup, word, `<h4>${escapeHtml(word.dataset.word)}</h4>
           <div class="muted">В словаре пока нет перевода</div>`);
         return;
       }
 
+      const entry = found.entry;
       const inCards = state.cards.some((card) => normalize(card.front) === normalize(entry.front));
+      if (inCards) found.spans.forEach((span) => span.classList.add("known"));
       const button = inCards
         ? '<div class="popup-status">Уже в ваших карточках</div>'
         : '<button class="btn small" data-add-word>В карточки</button>';
@@ -793,7 +821,7 @@
         addButton.addEventListener("click", () => {
           const added = addCard(entry.front, entry.back, entry.example);
           addButton.textContent = added ? "Добавлено ✓" : "Уже было";
-          if (added) word.classList.add("known");
+          if (added) found.spans.forEach((span) => span.classList.add("known"));
         });
       }
     });

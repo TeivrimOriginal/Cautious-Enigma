@@ -82,6 +82,23 @@
       popup.hidden = true;
     };
 
+    const spans = [...reader.querySelectorAll(".word")];
+
+    /** Сначала пробуем фразы из двух слов («alarm clock»), затем одно слово. */
+    const candidatesFor = (span) => {
+      const index = spans.indexOf(span);
+      const candidates = [];
+      if (index > 0) candidates.push({ text: `${spans[index - 1].dataset.word} ${span.dataset.word}`, spans: [spans[index - 1], span] });
+      if (index >= 0) {
+        candidates.push({
+          text: `${span.dataset.word} ${spans[index + 1]?.dataset.word ?? ""}`.trim(),
+          spans: [span, spans[index + 1]].filter(Boolean),
+        });
+      }
+      candidates.push({ text: span.dataset.word, spans: [span] });
+      return candidates;
+    };
+
     document.addEventListener("click", async (event) => {
       const target = event.target.closest(".word");
       if (!target) {
@@ -94,15 +111,17 @@
       popup.innerHTML = `<h4>${escapeHtml(word)}</h4><div class="muted small">Загрузка…</div>`;
       positionPopup(popup, target);
 
-      try {
-        const data = await api.translate(word);
-        if (data.missing) {
-          popup.innerHTML = `<h4>${escapeHtml(word)}</h4>
-            <div class="translation muted">В словаре пока нет перевода</div>`;
-          return;
+      for (const candidate of candidatesFor(target)) {
+        let data;
+        try {
+          data = await api.translate(candidate.text);
+        } catch (err) {
+          break;
         }
+        if (data.missing) continue;
+
         if (data.in_cards) {
-          target.classList.add("known");
+          candidate.spans.forEach((span) => span.classList.add("known"));
         }
         popup.innerHTML = `
           <h4>${escapeHtml(data.word)}</h4>
@@ -121,14 +140,15 @@
               addButton.textContent = "Нужен профиль";
               return;
             }
-            target.classList.add("known");
+            candidate.spans.forEach((span) => span.classList.add("known"));
             addButton.textContent = result.added ? "Добавлено ✓" : "Уже было";
           });
         }
-      } catch (err) {
-        popup.innerHTML = `<h4>${escapeHtml(word)}</h4>
-          <div class="muted small">Не удалось получить перевод</div>`;
+        return;
       }
+
+      popup.innerHTML = `<h4>${escapeHtml(word)}</h4>
+        <div class="translation muted">В словаре пока нет перевода</div>`;
     });
 
     document.addEventListener("keydown", (event) => {
