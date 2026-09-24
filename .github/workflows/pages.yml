@@ -1,0 +1,53 @@
+name: GitHub Pages
+
+# Публикует статическую версию сайта (папка web/) на github.io.
+# Работает при каждом пуше в main: тексты, словарь и упражнения
+# берутся из папки data/, стили — из static/style.css.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "data/**"
+      - "static/style.css"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Собрать статический сайт
+        run: |
+          mkdir -p _site/data
+          cp web/index.html web/app.js _site/
+          cp static/style.css _site/style.css
+          cp data/dictionary.tsv data/texts.json data/grammar.json _site/data/
+          ls -R _site
+
+      - name: Настроить Pages
+        uses: actions/configure-pages@v5
+
+      - name: Загрузить артефакт
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Опубликовать
+        id: deployment
+        uses: actions/deploy-pages@v4

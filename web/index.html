@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LinguaRust — изучение английского языка</title>
+    <meta
+      name="description"
+      content="LinguaRust: карточки с интервальным повторением, чтение с переводом по клику, грамматика и статистика. Работает прямо в браузере."
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="#/">Lingua<span>Rust</span></a>
+        <nav class="nav" id="nav">
+          <a href="#/" data-route="home">Главная</a>
+          <a href="#/cards" data-route="cards">Карточки</a>
+          <a href="#/reading" data-route="reading">Чтение</a>
+          <a href="#/grammar" data-route="grammar">Грамматика</a>
+          <a href="#/stats" data-route="stats">Статистика</a>
+        </nav>
+        <div class="nav-right" id="profile-box"></div>
+      </div>
+    </header>
+
+    <main class="layout" id="app">
+      <p class="muted">Загрузка…</p>
+    </main>
+
+    <footer class="layout">
+      LinguaRust · Axum + SQLx + Askama · статическая версия работает без сервера,
+      прогресс хранится в вашем браузере
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
