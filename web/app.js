@@ -572,6 +572,279 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * Экзамен: смешанные вопросы EN→RU и RU→EN
+   * ------------------------------------------------------------------ */
+
+  const EXAM_LENGTH = 10;
+  const EXAM_SECONDS = 90;
+  const XP_EXAM_CORRECT = 8;
+  const XP_TYPING_CORRECT = 6;
+
+  /** Текущий экзамен живёт в памяти сессии. */
+  let exam = null;
+
+  function shuffle(items) {
+    const copy = [...items];
+    for (let i = copy.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  }
+
+  function buildExam() {
+    const pool = data.entries;
+    if (pool.length < 4) return [];
+
+    return Array.from({ length: EXAM_LENGTH }, (_, index) => {
+      const enToRu = index % 2 === 0;
+      const entry = pool[Math.floor(Math.random() * pool.length)];
+      const distractors = shuffle(pool.filter((item) => item.front !== entry.front)).slice(0, 3);
+      const options = shuffle([entry, ...distractors]);
+
+      return {
+        direction: enToRu ? "en2ru" : "ru2en",
+        prompt: enToRu ? entry.front : entry.back,
+        example: enToRu ? "" : entry.example || "",
+        word: entry.front,
+        translation: entry.back,
+        options: options.map((item) => (enToRu ? item.back : item.front)),
+        correct: options.findIndex((item) => item.front === entry.front),
+      };
+    });
+  }
+
+  function startExam() {
+    const questions = buildExam();
+    if (!questions.length) return;
+
+    exam = {
+      questions,
+      index: 0,
+      correct: 0,
+      answers: [],
+      left: EXAM_SECONDS,
+      timer: setInterval(() => {
+        exam.left -= 1;
+        const label = document.getElementById("exam-timer");
+        if (label) label.textContent = `⏱ ${exam.left} с`;
+        if (exam.left <= 0) finishExam();
+      }, 1000),
+    };
+    route();
+  }
+
+  function finishExam() {
+    if (!exam || exam.finished) return;
+    clearInterval(exam.timer);
+
+    const xp = exam.correct * XP_EXAM_CORRECT;
+    state.exams = state.exams || [];
+    state.exams.unshift({
+      at: today(),
+      total: exam.questions.length,
+      correct: exam.correct,
+      seconds: EXAM_SECONDS - exam.left,
+    });
+    state.exams = state.exams.slice(0, 20);
+    saveState();
+    checkAchievements();
+
+    exam = {
+      ...exam,
+      xp,
+      wrong: exam.answers.filter((item) => !item.ok),
+      finished: true,
+    };
+    if (xp > 0) toast(`Экзамен: +${xp} XP`, `${exam.correct} из ${EXAM_LENGTH}`, "good");
+    route();
+  }
+
+  function renderExam() {
+    if (!exam) {
+      const best = (state.exams || []).reduce((acc, item) => Math.max(acc, item.correct), 0);
+      return `
+        <section class="panel">
+          <h1>Экзамен</h1>
+          <p class="muted" style="margin-top:0">
+            ${EXAM_LENGTH} вопросов на ${EXAM_SECONDS} секунд: половина — перевод
+            с английского, половина — обратный. За верный ответ ${XP_EXAM_CORRECT} XP.
+          </p>
+          ${best > 0 ? `<p class="muted small">Лучший результат: ${best} из ${EXAM_LENGTH}</p>` : ""}
+          <button class="btn" data-exam="start">Начать экзамен</button>
+        </section>`;
+    }
+
+    if (exam.finished) {
+      const percent = Math.round((exam.correct / EXAM_LENGTH) * 100);
+      return `
+        <section class="panel" style="text-align:center">
+          <h1>Результат: ${exam.correct} из ${EXAM_LENGTH}</h1>
+          <p class="muted">Точность ${percent}% · ${exam.xp} XP · ${EXAM_SECONDS - exam.left} с</p>
+          <div class="actions" style="justify-content:center">
+            <button class="btn" data-exam="start">Ещё раз</button>
+            <a class="btn ghost" href="#/stats">В статистику</a>
+          </div>
+        </section>
+        ${
+          exam.wrong.length
+            ? `<section class="panel">
+                <h3>Разбор ошибок</h3>
+                <ul class="card-list">
+                  ${exam.wrong
+                    .map(
+                      (item) => `<li>
+                        <div class="card-front">${escapeHtml(item.word)}</div>
+                        <div class="card-back">${escapeHtml(item.translation)}</div>
+                        <span class="tag due">ваш ответ: ${escapeHtml(item.answer || "—")}</span>
+                      </li>`,
+                    )
+                    .join("")}
+                </ul>
+              </section>`
+            : '<section class="panel"><p class="muted">Без ошибок — идеально!</p></section>'
+        }`;
+    }
+
+    const question = exam.questions[exam.index];
+    const answered = exam.answers[exam.index];
+
+    return `
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between">
+          <span class="tag">Вопрос ${exam.index + 1} из ${EXAM_LENGTH}</span>
+          <span class="tag" id="exam-timer">⏱ ${exam.left} с</span>
+          <span class="tag ok">верно: ${exam.correct}</span>
+        </div>
+        <div class="progress" style="margin:12px 0 18px"><span style="width:${Math.round(
+          (exam.index / EXAM_LENGTH) * 100,
+        )}%"></span></div>
+
+        <p style="font-size:22px;font-weight:600;text-align:center">${escapeHtml(question.prompt)}</p>
+        ${
+          question.example
+            ? `<p class="muted small" style="text-align:center">${escapeHtml(question.example)}</p>`
+            : ""
+        }
+        ${
+          question.direction === "en2ru"
+            ? `<p style="text-align:center">${speakButton(question.word)}</p>`
+            : ""
+        }
+
+        <div class="options-grid">
+          ${question.options
+            .map((option, index) => {
+              let cls = "option";
+              if (answered) {
+                if (index === question.correct) cls += " correct";
+                else if (index === answered.chosen) cls += " wrong";
+              }
+              return `<button class="${cls}" data-exam-answer="${index}" ${
+                answered ? "disabled" : ""
+              }>${escapeHtml(option)}</button>`;
+            })
+            .join("")}
+        </div>
+
+        ${
+          answered
+            ? `<div class="notice ${answered.ok ? "ok" : "err"}">
+                ${
+                  answered.ok
+                    ? `Верно! +${XP_EXAM_CORRECT} XP`
+                    : `Неверно. Правильно: ${escapeHtml(question.options[question.correct])}`
+                }
+              </div>
+              <button class="btn" data-exam="next">${
+                exam.index + 1 === EXAM_LENGTH ? "Итоги" : "Следующий вопрос"
+              }</button>`
+            : ""
+        }
+      </section>`;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Тренажёр письма: показан перевод, слово нужно напечатать
+   * ------------------------------------------------------------------ */
+
+  let typing = null;
+
+  function startTyping() {
+    const pool = state.cards.filter((card) => normalize(card.front).length <= 24);
+    if (pool.length < 3) return;
+    typing = { cards: shuffle(pool).slice(0, Math.min(10, pool.length)), index: 0, correct: 0 };
+    route();
+  }
+
+  function checkTyping(value) {
+    if (!typing) return;
+    const card = typing.cards[typing.index];
+    // «to boil» и «boil» считаем одним ответом, регистр не важен.
+    const clean = (text) => normalize(text).replace(/^to\s+/, "");
+    const ok = clean(value) === clean(card.front);
+
+    typing.correct += ok ? 1 : 0;
+    typing.last = { ok, value, card };
+    if (ok) toast(`+${XP_TYPING_CORRECT} XP`, card.front, "good");
+    saveState();
+    route();
+  }
+
+  function renderTyping() {
+    if (!typing) {
+      return `
+        <section class="panel">
+          <h1>Тренажёр письма</h1>
+          <p class="muted" style="margin-top:0">
+            Показываем перевод — напишите слово по-английски. Регистр не важен,
+            «to» можно опустить. За верный ответ ${XP_TYPING_CORRECT} XP.
+          </p>
+          ${
+            state.cards.length < 3
+              ? '<p class="muted">Сначала добавьте хотя бы 3 карточки.</p>'
+              : '<button class="btn" data-typing="start">Начать тренировку</button>'
+          }
+        </section>`;
+    }
+
+    const card = typing.cards[typing.index];
+    const last = typing.last;
+
+    if (!last) {
+      return `
+        <section class="panel" style="text-align:center">
+          <div class="actions" style="justify-content:space-between">
+            <span class="tag">Слово ${typing.index + 1} из ${typing.cards.length}</span>
+            <span class="tag ok">верно: ${typing.correct}</span>
+          </div>
+          <p style="font-size:26px;font-weight:600;margin:26px 0 4px">${escapeHtml(card.back)}</p>
+          ${card.example ? `<p class="muted small">${escapeHtml(card.example)}</p>` : ""}
+          <form id="typing-form" style="max-width:320px;margin:18px auto 0">
+            <input type="text" name="answer" autocomplete="off" autocapitalize="off"
+              placeholder="введите слово" required autofocus />
+            <button class="btn" type="submit" style="margin-top:10px">Проверить</button>
+          </form>
+          <p style="margin-top:10px">${speakButton(card.front)}</p>
+        </section>`;
+    }
+
+    return `
+      <section class="panel" style="text-align:center">
+        <div class="notice ${last.ok ? "ok" : "err"}">
+          ${last.ok ? "Верно!" : `Неверно. Правильный ответ: ${escapeHtml(last.card.front)}`}
+        </div>
+        <p style="font-size:26px;font-weight:600;margin:18px 0 4px">${escapeHtml(card.back)}</p>
+        <div class="actions" style="justify-content:center">
+          <button class="btn" data-typing="next">${
+            typing.index + 1 === typing.cards.length ? "Итоги" : "Следующее слово"
+          }</button>
+          <a class="btn ghost" href="#/typing" data-typing="restart">Заново</a>
+        </div>
+      </section>`;
+  }
+
+  /* ------------------------------------------------------------------ *
    * Представления
    * ------------------------------------------------------------------ */
 
@@ -660,6 +933,8 @@
           <a class="btn" href="#/cards">${s.due > 0 ? `Повторить ${s.due}` : "Открыть карточки"}</a>
           <a class="btn ghost" href="#/reading">Читать</a>
           <a class="btn ghost" href="#/grammar">Грамматика</a>
+          <a class="btn ghost" href="#/exam">Экзамен</a>
+          <a class="btn ghost" href="#/typing">Тренажёр письма</a>
         </div>
       </section>
 
@@ -1100,6 +1375,8 @@
     { pattern: /^#\/reading$/, view: "reading" },
     { pattern: /^#\/reading\/(.+)$/, view: "readingText" },
     { pattern: /^#\/grammar(?:=(\d+))?$/, view: "grammar" },
+    { pattern: /^#\/exam$/, view: "exam" },
+    { pattern: /^#\/typing$/, view: "typing" },
     { pattern: /^#\/stats$/, view: "stats" },
   ];
 
@@ -1217,6 +1494,12 @@
       case "grammar":
         app.innerHTML = renderGrammar();
         break;
+      case "exam":
+        app.innerHTML = renderExam();
+        break;
+      case "typing":
+        app.innerHTML = renderTyping();
+        break;
       case "stats":
         app.innerHTML = renderStats();
         break;
@@ -1244,6 +1527,12 @@
       return;
     }
 
+    if (form.id === "typing-form") {
+      event.preventDefault();
+      checkTyping(new FormData(form).get("answer") || "");
+      return;
+    }
+
     if (form.id === "add-form") {
       event.preventDefault();
       const values = new FormData(form);
@@ -1256,6 +1545,55 @@
   });
 
   document.addEventListener("click", (event) => {
+    // Экзамен
+    const examButton = event.target.closest("[data-exam]");
+    if (examButton) {
+      if (examButton.dataset.exam === "start") startExam();
+      else if (examButton.dataset.exam === "next") {
+        if (exam.index + 1 === EXAM_LENGTH) finishExam();
+        else {
+          exam.index += 1;
+          route();
+        }
+      }
+      return;
+    }
+
+    const examAnswer = event.target.closest("[data-exam-answer]");
+    if (examAnswer && exam && !exam.finished) {
+      const question = exam.questions[exam.index];
+      const chosen = Number(examAnswer.dataset.examAnswer);
+      const ok = chosen === question.correct;
+      exam.answers[exam.index] = {
+        chosen,
+        ok,
+        answer: question.options[chosen],
+        word: question.word,
+        translation: question.translation,
+      };
+      if (ok) exam.correct += 1;
+      route();
+      return;
+    }
+
+    // Тренажёр письма
+    const typingButton = event.target.closest("[data-typing]");
+    if (typingButton) {
+      const action = typingButton.dataset.typing;
+      if (action === "start" || action === "restart") {
+        startTyping();
+      } else if (typing && typing.index + 1 === typing.cards.length) {
+        const xp = typing.correct * XP_TYPING_CORRECT;
+        toast(`Тренировка: ${typing.correct} из ${typing.cards.length}`, `+${xp} XP`, typing.correct ? "good" : "");
+        typing = null;
+      } else if (typing) {
+        typing.index += 1;
+        typing.last = null;
+      }
+      route();
+      return;
+    }
+
     const grade = event.target.closest("[data-grade]");
     if (grade) {
       gradeCard(Number(grade.dataset.card), Number(grade.dataset.grade));

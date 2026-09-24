@@ -580,6 +580,46 @@ details.reveal > summary::-webkit-details-marker {
   margin-top: 16px;
 }
 
+/* Варианты ответа в виде сетки (экзамен) */
+.options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+button.option {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button.option:disabled {
+  cursor: default;
+}
+
+button.option.correct {
+  border-color: var(--good);
+  background: #e8f6ee;
+  color: var(--text);
+}
+
+button.option.wrong {
+  border-color: var(--bad);
+  background: #fdecec;
+  color: var(--text);
+}
+
+[data-theme="dark"] button.option.correct {
+  background: #163024;
+}
+
+[data-theme="dark"] button.option.wrong {
+  background: #331a1c;
+}
+
 /* ---------- График активности ---------- */
 
 .chart {
