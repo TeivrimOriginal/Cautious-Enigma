@@ -1,0 +1,15 @@
+# Сборка
+/target
+**/*.rs.bk
+
+# Локальное окружение и секреты
+.env
+.env.*
+!.env.example
+
+# Локальное зеркало crates.io для сетей с блокировкой crates.io
+/.cargo/config.toml
+
+# Служебные файлы
+crates.txt
+.vercel

@@ -1,0 +1,142 @@
+[
+  {
+    "topic": "Present Simple",
+    "prompt": "Every morning she ___ to work by bus.",
+    "options": ["travel", "travels", "travelled", "is travelling"],
+    "correct_index": 1,
+    "explanation": "В Present Simple в третьем лице единственного числа глагол получает окончание -s: she travels."
+  },
+  {
+    "topic": "Present Simple",
+    "prompt": "He ___ coffee after lunch.",
+    "options": ["don't like", "doesn't like", "isn't liking", "not likes"],
+    "correct_index": 1,
+    "explanation": "Отрицание в Present Simple образуется с помощью does not (doesn't): he doesn't like."
+  },
+  {
+    "topic": "Past Simple",
+    "prompt": "We ___ to Rome last summer.",
+    "options": ["travel", "traveled", "have traveled", "are traveling"],
+    "correct_index": 1,
+    "explanation": "Действие завершилось в прошлом и указано время last summer — нужен Past Simple: we traveled."
+  },
+  {
+    "topic": "Past Simple",
+    "prompt": "I ___ finish the report yesterday.",
+    "options": ["didn't", "don't", "wasn't", "haven't"],
+    "correct_index": 0,
+    "explanation": "Отрицание в Past Simple строится с did not (didn't) + глагол в первой форме."
+  },
+  {
+    "topic": "Present Perfect",
+    "prompt": "I ___ this film three times.",
+    "options": ["watched", "have watched", "am watching", "was watching"],
+    "correct_index": 1,
+    "explanation": "Present Perfect связывает прошлое с настоящим: have/has + V3. Здесь I have watched."
+  },
+  {
+    "topic": "Present Perfect",
+    "prompt": "___ you ever ___ sushi?",
+    "options": ["Did / eat", "Have / eaten", "Do / eat", "Were / eating"],
+    "correct_index": 1,
+    "explanation": "Вопрос о жизненном опыте: Have you ever eaten…?"
+  },
+  {
+    "topic": "Future",
+    "prompt": "Look at those clouds! It ___ rain.",
+    "options": ["will", "is going to", "would", "was going to"],
+    "correct_index": 1,
+    "explanation": "Признаки уже видны, поэтому используется be going to: it is going to rain."
+  },
+  {
+    "topic": "Future",
+    "prompt": "I think she ___ late again.",
+    "options": ["is going to be", "will be", "was", "has been"],
+    "correct_index": 1,
+    "explanation": "В значении предсказания, мнения и решения используется will: she will be late."
+  },
+  {
+    "topic": "Articles",
+    "prompt": "___ Eiffel Tower is in Paris.",
+    "options": ["A", "An", "The", "—"],
+    "correct_index": 2,
+    "explanation": "Для единственного в мире объекта, здания или географического названия используется the."
+  },
+  {
+    "topic": "Articles",
+    "prompt": "My sister plays ___ piano and ___ guitar.",
+    "options": ["a / a", "the / the", "a / the", "— / the"],
+    "correct_index": 1,
+    "explanation": "С названиями музыкальных инструментов всегда используется the: play the piano."
+  },
+  {
+    "topic": "Prepositions",
+    "prompt": "We arrived ___ the airport two hours early.",
+    "options": ["in", "at", "to", "on"],
+    "correct_index": 1,
+    "explanation": "Предлог at используется с конкретными местами и зданиями: at the airport, at home, at work."
+  },
+  {
+    "topic": "Prepositions",
+    "prompt": "I'm really interested ___ modern history.",
+    "options": ["on", "at", "in", "for"],
+    "correct_index": 2,
+    "explanation": "Устойчивое сочетание: be interested in something."
+  },
+  {
+    "topic": "Comparatives",
+    "prompt": "This exercise is ___ than the last one.",
+    "options": ["easy", "easier", "easiest", "more easy"],
+    "correct_index": 1,
+    "explanation": "Сравнение двух предметов требуетComparative: easier (односложное слово + -er)."
+  },
+  {
+    "topic": "Superlatives",
+    "prompt": "It was ___ film of the year.",
+    "options": ["the more boring", "the most boring", "the boringest", "more boring"],
+    "correct_index": 1,
+    "explanation": "Превосходная степень многосложного прилагательного: the most boring film."
+  },
+  {
+    "topic": "Modals",
+    "prompt": "You ___ wear a seat belt — it is the law.",
+    "options": ["might", "must", "could", "would"],
+    "correct_index": 1,
+    "explanation": "Must выражает обязанность, установленную правилами."
+  },
+  {
+    "topic": "Modals",
+    "prompt": "Her car is in the driveway, so she ___ be at home now.",
+    "options": ["can't", "mustn't", "must", "shouldn't"],
+    "correct_index": 2,
+    "explanation": "Must в значении предположения: почти наверняка она дома."
+  },
+  {
+    "topic": "Conditionals",
+    "prompt": "If it rains tomorrow, we ___ at home.",
+    "options": ["stay", "will stay", "would stay", "stayed"],
+    "correct_index": 1,
+    "explanation": "Первый тип условного предложения (реальное будущее): If + Present, will + V1."
+  },
+  {
+    "topic": "Conditionals",
+    "prompt": "If I ___ more free time, I would learn Italian.",
+    "options": ["have", "had", "will have", "would have"],
+    "correct_index": 1,
+    "explanation": "Второй тип условия (нереальное настоящее): If + Past, would + V1."
+  },
+  {
+    "topic": "Passive Voice",
+    "prompt": "This bridge ___ in 1890.",
+    "options": ["built", "was built", "is built", "has built"],
+    "correct_index": 1,
+    "explanation": "Страдательный залог в Past Simple: was/were + V3."
+  },
+  {
+    "topic": "Gerund and Infinitive",
+    "prompt": "I enjoy ___ new languages, and I don't mind ___ every day.",
+    "options": ["learn / study", "to learn / studying", "learning / study", "learning / to study"],
+    "correct_index": 2,
+    "explanation": "После enjoy и don't mind используется герундий (V-ing)."
+  }
+]

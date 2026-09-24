@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: linguarust
+      POSTGRES_PASSWORD: linguarust
+      POSTGRES_DB: linguarust
+    ports:
+      - "5432:5432"
+    volumes:
+      - linguarust-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U linguarust -d linguarust"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://linguarust:linguarust@db:5432/linguarust
+      COOKIE_KEY: ${COOKIE_KEY:?задайте COOKIE_KEY в .env}
+      BIND_ADDR: 0.0.0.0:3000
+      RUST_LOG: linguarust=info,tower_http=info,warn
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  linguarust-pg:

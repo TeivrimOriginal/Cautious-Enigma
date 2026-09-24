@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title }} · LinguaRust</title>
+    <meta name="description" content="LinguaRust — изучение английского языка: карточки с интервальным повторением, чтение и грамматика" />
+    <style>{{ css|safe }}</style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="/">Lingua<span>Rust</span></a>
+        <nav class="nav">
+          <a href="/" class="{% if current == "home" %}active{% endif %}">Главная</a>
+          <a href="/cards" class="{% if current == "cards" %}active{% endif %}">Карточки</a>
+          <a href="/reading" class="{% if current == "reading" %}active{% endif %}">Чтение</a>
+          <a href="/grammar" class="{% if current == "grammar" %}active{% endif %}">Грамматика</a>
+          <a href="/stats" class="{% if current == "stats" %}active{% endif %}">Статистика</a>
+        </nav>
+        <div class="nav-right">
+          {% if nav.has_profile %}
+            <span class="badge">🔥 {{ nav.streak }} дн.</span>
+            {% if nav.due > 0 %}
+              <span class="badge hot">{{ nav.due }} к повторению</span>
+            {% endif %}
+            <form method="post" action="/profile/reset">
+              <button class="btn ghost small" type="submit" title="Забыть профиль на этом устройстве">Выйти</button>
+            </form>
+          {% else %}
+            <a class="btn small" href="/">Начать</a>
+          {% endif %}
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="layout">
+      LinguaRust · Axum + SQLx + Askama · учебный проект на Rust
+    </footer>
+
+    <script>{{ js|safe }}</script>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel" style="max-width: 560px; margin: 40px auto; text-align: center;">
+  <h1 style="margin-bottom: 6px;">Привет! Это LinguaRust</h1>
+  <p class="muted">
+    Учите английский по карточкам с интервальным повторением, читайте тексты
+    с переводом по клику и тренируйте грамматику.
+  </p>
+
+  {% if !error.is_empty() %}
+    <div class="notice err">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="/profile">
+    <label class="field" style="text-align: left;">
+      <span>Как вас зовут?</span>
+      <input type="text" name="name" maxlength="40" value="{{ name }}" placeholder="Например, Алекс" required autofocus />
+    </label>
+    <button class="btn" type="submit">Начать обучение</button>
+  </form>
+
+  <p class="muted small" style="margin-top: 22px; margin-bottom: 0;">
+    Пароля нет: профиль хранится только в cookie этого браузера.<br />
+    Прогресс, карточки и статистика привязаны к имени.
+  </p>
+</section>
+{% endblock %}

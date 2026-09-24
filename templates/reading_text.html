@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block content %}
+<article class="panel">
+  <div class="actions" style="justify-content: space-between;">
+    <h1 style="margin: 0;">{{ title_text }}</h1>
+    <div>
+      <span class="tag">{{ level }}</span>
+      <span class="tag">{{ word_count }} слов</span>
+    </div>
+  </div>
+  <p class="muted small">{{ summary }}</p>
+
+  <div class="reader" data-reader>
+    {% for paragraph in paragraphs %}
+      <p>{{ paragraph }}</p>
+    {% endfor %}
+  </div>
+
+  <p class="muted small">
+    Слова, которые уже есть в ваших карточках, подчёркиваются пунктиром.
+  </p>
+</article>
+
+{% if !other.is_empty() %}
+  <section class="panel">
+    <h3>Другие тексты</h3>
+    <div class="actions">
+      {% for text in other %}
+        <a class="btn ghost small" href="/reading/{{ text.slug }}">{{ text.title }} · {{ text.level }}</a>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

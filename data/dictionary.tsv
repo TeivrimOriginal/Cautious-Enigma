@@ -1,0 +1,264 @@
+# LinguaRust dictionary: front (EN)  back (RU)  example
+# Разделитель — табуляция. Строки, начинающиеся с #, игнорируются.
+# --- Повседневная жизнь ---
+to wake up	просыпаться	I usually wake up at seven o'clock.
+to get dressed	одеваться	She gets dressed quickly in the morning.
+breakfast	завтрак	Breakfast is the most important meal of the day.
+to commute	добираться до работы	He commutes to the office by train.
+household	домашнее хозяйство	They share all household chores.
+laundry	стирка, бельё	I do the laundry on Sundays.
+to do the dishes	мыть посуду	After dinner we do the dishes together.
+grocery	продуктовый	She buys groceries every Saturday.
+to tidy up	прибираться	Please tidy up your room before guests arrive.
+neighbourhood	район, окрестности	It is a quiet neighbourhood with a park.
+to run errands	бегать по делам	I need to run some errands after work.
+spare time	свободное время	In my spare time I read books.
+to take a nap	вздремнуть	A short nap helps me feel fresh.
+to oversleep	проспать	Do not oversleep on the day of the exam!
+alarm clock	будильник	The alarm clock rings at six.
+to switch off	выключать	Please switch off your phone during the lesson.
+kettle	чайник	The water in the kettle is boiling.
+to boil	кипятить	I boil eggs for breakfast.
+to fry	жарить	She fries onions for the soup.
+oven	духовка, печь	The cake is baking in the oven.
+to peel	чистить (овощи)	Peel the potatoes before boiling them.
+to chop	нарезать	Chop the vegetables into small pieces.
+recipe	рецепт	This recipe requires fresh tomatoes.
+ingredient	ингредиент	Mix all the ingredients in a bowl.
+taste	вкус	The soup has a rich taste.
+delicious	вкусный	The pie is absolutely delicious.
+to water	поливать	I water the flowers every evening.
+garbage	мусор	Take the garbage out, please.
+to vacuum	пылесосить	He vacuums the carpet twice a week.
+mirror	зеркало	She looked into the mirror and smiled.
+# --- Работа и бизнес ---
+to hire	нанимать	The company plans to hire ten new engineers.
+to fire	увольнять	The manager had to fire two employees.
+employee	сотрудник	Every employee gets a health insurance.
+employer	работодатель	The employer provides training courses.
+salary	зарплата (оклад)	His salary increased this year.
+wages	зарплата (почасовая)	The workers receive wages every Friday.
+to promote	повышать (в должности)	They promoted her to project lead.
+resignation	увольнение (по своей воле)	He handed in his resignation yesterday.
+deadline	срок сдачи	We have a tight deadline this week.
+workload	рабочая нагрузка	Her workload is heavy at the end of the quarter.
+to negotiate	вести переговоры	They negotiated a new contract.
+meeting	совещание	The meeting starts at ten sharp.
+agenda	повестка дня	The first item on the agenda is the budget.
+colleague	коллега	My colleagues are friendly and helpful.
+to attend	посещать	She attends a conference every autumn.
+workshop	семинар, практикум	The workshop on public speaking was useful.
+project	проект	This project will take three months.
+to manage	управлять	He manages a team of twelve people.
+customer	клиент, покупатель	The customer asked for a refund.
+supplier	поставщик	We changed our supplier last month.
+stock	запас, склад	The shop has a large stock of books.
+to deliver	доставлять	They deliver the goods within two days.
+invoice	счёт (на оплату)	Please send us an invoice for the services.
+to launch	запускать	The startup launched its app in May.
+funding	финансирование	The project needs extra funding.
+budget	бюджет	We planned the budget for next year.
+investment	инвестиция	Education is a smart investment.
+to expand	расширять	The firm wants to expand into Asia.
+branch	филиал	The bank opened a new branch downtown.
+to retire	выходить на пенсию	My uncle retired at sixty.
+# --- Путешествия ---
+journey	путешествие, поездка	The journey took twelve hours.
+to book	бронировать	I booked a ticket for Friday.
+ticket	билет	The ticket costs twenty euros.
+platform	платформа, перрон	The train leaves from platform three.
+delay	задержка	The flight had a two-hour delay.
+to board	садиться (на борт)	Passengers board the plane at gate five.
+luggage	багаж	My luggage is too heavy to carry.
+suitcase	чемодан	I packed my suitcase the night before.
+passport	паспорт	Do not forget your passport!
+customs	таможня	We stood in line at customs.
+abroad	за границей	She studies abroad in Spain.
+sightseeing	осмотр достопримечательностей	We went sightseeing in the old town.
+landmark	достопримечательность	The castle is the main landmark of the city.
+guide	гид, путеводитель	The guide told us about local history.
+to explore	исследовать	We explored the coast on bikes.
+accommodation	жильё	The accommodation was cosy and cheap.
+reservation	бронирование	I made a reservation for two nights.
+hostel	хостел	The hostel is close to the station.
+map	карта	Check the map before you turn.
+tourist	турист	The streets are full of tourists in July.
+souvenir	сувенир	She bought a small souvenir for her mum.
+currency	валюта	What currency do they use in Japan?
+exchange	обмен (валюты)	The exchange rate is better at the bank.
+to get lost	заблудиться	We got lost in the narrow streets.
+to check in	регистрироваться	We checked in at the hotel at noon.
+# --- Технологии ---
+device	устройство	This device is easy to use.
+wireless	беспроводной	The wireless charger is fast.
+to download	скачивать	Download the file and open it.
+to upload	загружать	Upload your photo to the album.
+password	пароль	Choose a strong password.
+to log in	войти в систему	Log in with your email and password.
+to sign up	зарегистрироваться	You can sign up for free.
+browser	браузер	The browser updated last night.
+website	веб-сайт	The website loads slowly on mobile.
+search engine	поисковая система	This search engine respects privacy.
+software	программное обеспечение	We need to update the software.
+hardware	оборудование	The hardware is powerful enough.
+crash	сбой	My computer crashed during the meeting.
+to reboot	перезагрузить	Reboot the router to fix the connection.
+update	обновление	Install the latest update now.
+notification	уведомление	Turn off unnecessary notifications.
+privacy	конфиденциальность	The app promises full privacy.
+to hack	взламывать	Someone tried to hack the account.
+virus	вирус	The antivirus removed the virus.
+network	сеть	The office network is down.
+server	сервер	The server stores all user data.
+cloud	облако	I keep my photos in the cloud.
+screen	экран	The screen is too bright at night.
+keyboard	клавиатура	The keyboard is quiet and comfortable.
+to type	печатать	She types very fast.
+# --- Эмоции и чувства ---
+joy	радость	The news filled her with joy.
+to be proud of	гордиться чем-то	I am proud of your results.
+to be grateful	быть благодарным	We are grateful for your help.
+to worry	волноваться	Do not worry about small things.
+anxiety	тревога	He felt anxiety before the interview.
+excited	взволнованный, в предвкушении	The children are excited about the trip.
+to disappoint	разочаровывать	I did not want to disappoint my parents.
+embarrassed	смущённый	She was embarrassed by the mistake.
+lonely	одинокий	He felt lonely in the new city.
+to miss	скучать по	I miss my friends from university.
+to admire	восхищаться	Everyone admires her courage.
+confidence	уверенность	Practice builds confidence.
+to envy	завидовать	They envy his success.
+guilty	виноватый	He felt guilty about the accident.
+to comfort	утешать	Friends comforted her after the loss.
+mood	настроение	His mood changed quickly.
+to cheer up	подбодрить, взбодриться	Music helps me cheer up.
+anger	гнев	He tried to hide his anger.
+to forgive	прощать	It took her years to forgive him.
+surprise	сюрприз, удивление	The party was a big surprise for me.
+# --- Образование ---
+to study	учиться, изучать	She studies English every day.
+to learn	учить, выучить	We learn new words at each lesson.
+to memorize	заучивать	He memorized the poem by heart.
+to revise	повторять (материал)	I need to revise grammar before the test.
+homework	домашнее задание	The homework is due on Monday.
+essay	сочинение, эссе	Write an essay about your favourite book.
+exam	экзамен	The exam is in two weeks.
+to pass	сдать (экзамен)	She passed the exam with a high score.
+to fail	провалить, не сдать	He failed maths twice.
+grade	оценка	She got a good grade in biology.
+subject	предмет (в школе)	My favourite subject is literature.
+timetable	расписание	Check the timetable for tomorrow.
+lecture	лекция	The lecture lasted ninety minutes.
+seminar	семинар	We discussed the topic at the seminar.
+to graduate	заканчивать (учёбу)	He graduates from university next year.
+degree	степень, диплом	She has a degree in chemistry.
+knowledge	знания	Knowledge grows with practice.
+to improve	улучшать	Reading helps improve vocabulary.
+to practice	практиковаться	Practice speaking every day.
+skills	навыки	Communication skills matter at work.
+# --- Природа ---
+environment	окружающая среда	We must protect the environment.
+climate	климат	The climate is changing rapidly.
+weather	погода	The weather turned cold yesterday.
+forecast	прогноз	The forecast says rain in the evening.
+drought	засуха	The drought damaged the harvest.
+flood	наводнение	The flood destroyed several bridges.
+earthquake	землетрясение	The earthquake was mild but scary.
+mountain	гора	We climbed the mountain at dawn.
+valley	долина	The river runs through the valley.
+forest	лес	The forest is full of birds.
+ocean	океан	They sailed across the ocean.
+wave	волна	The waves were high today.
+sunrise	восход солнца	We watched the sunrise from the cliff.
+sunset	закат	The sunset painted the sky orange.
+to pollute	загрязнять	Factories pollute the river.
+waste	отходы	Sort the waste before recycling.
+to recycle	перерабатывать	We recycle paper and glass.
+energy	энергия	Solar energy is clean and renewable.
+wildlife	дикая природа	The national park protects local wildlife.
+to survive	выживать	Some plants survive in the desert.
+# --- Здоровье ---
+to recover	выздоравливать	She recovered from the flu quickly.
+illness	болезнь	The illness kept him at home for a week.
+symptom	симптом	A cough is a common symptom.
+to treat	лечить	The doctor treats patients with care.
+treatment	лечение	The treatment lasts a month.
+prescription	рецепт (на лекарство)	The doctor wrote a prescription.
+dose	доза	Take one dose in the morning.
+to inject	делать укол	The nurse injected the vaccine.
+vaccine	вакцина	The vaccine protects against the virus.
+to prevent	предотвращать	Washing hands prevents infection.
+swelling	отёк	Ice reduces the swelling.
+wound	рана	Clean the wound before bandaging it.
+to heal	заживать	The cut healed in a few days.
+to breathe	дышать	Breathe deeply and slowly.
+to exercise	заниматься спортом, упражняться	I exercise three times a week.
+stamina	выносливость	Swimming builds stamina.
+diet	диета, рацион	A balanced diet keeps you healthy.
+nutrition	питание	Good nutrition is the key to health.
+to measure	измерять	The nurse measured my blood pressure.
+appointment	запись (к врачу)	I have an appointment at nine.
+# --- Глаголы общего назначения ---
+to achieve	достигать	You can achieve your goal step by step.
+to allow	разрешать	The rules allow mobile phones.
+to appear	появляться	Stars appear in the evening sky.
+to avoid	избегать	Avoid eating too much sugar.
+to belong	принадлежать	This book belongs to my sister.
+to borrow	занимать (брать в долг)	May I borrow your pen?
+to lend	одалживать	He lent me his umbrella.
+to choose	выбирать	Choose the right answer.
+to compare	сравнивать	Compare the two pictures.
+to continue	продолжать	The film continues after the break.
+to create	создавать	Artists create beauty from simple things.
+to decide	решать	They decided to move abroad.
+to describe	описывать	Can you describe the suspect?
+to develop	развивать, разрабатывать	The kids develop their imagination through play.
+to disappear	исчезать	The old tram disappeared from the streets.
+to discuss	обсуждать	We discussed the plan for an hour.
+to divide	делить	Divide the cake into eight pieces.
+to earn	зарабатывать	He earns enough for a living.
+to encourage	поощрять, подбадривать	Teachers encourage students to ask questions.
+to expect	ожидать	I expect a call from the office.
+to explain	объяснять	The coach explained the new tactic.
+to fail	терпеть неудачу	Do not be afraid to fail.
+to hide	прятать	The cat hides behind the sofa.
+to imagine	представлять	Imagine living on Mars.
+to include	включать	The price includes breakfast.
+to increase	увеличивать	Sales increased by twenty per cent.
+to invite	приглашать	They invited us to the wedding.
+to mention	упоминать	She mentioned the plan briefly.
+to notice	замечать	I noticed a strange sound outside.
+to offer	предлагать	They offered me a new job.
+to order	заказывать	We ordered pizza for dinner.
+to prepare	готовить, подготавливать	Prepare your questions in advance.
+to promise	обещать	He promised to call back.
+to reduce	сокращать	Reduce your screen time.
+to refuse	отказываться	She refused the offer politely.
+to remind	напоминать	Remind me about the meeting tomorrow.
+to require	требовать	The job requires patience.
+to solve	решать (проблему)	They solved the mystery together.
+to suggest	предлагать (идею)	I suggest taking a break.
+to support	поддерживать	Friends support each other.
+to survive	выживать	The company survived the crisis.
+to waste	тратить впустую	Do not waste your time.
+# --- Прилагательные ---
+reliable	надёжный	He is a reliable partner.
+honest	честный	Be honest with yourself.
+patient	терпеливый	Teachers must be patient.
+curious	любознательный	Curious kids ask many questions.
+creative	творческий	She has a creative approach to design.
+careful	осторожный, внимательный	Be careful with the stairs.
+careless	небрежный	A careless mistake cost us the match.
+polite	вежливый	The waiter was polite and fast.
+rude	грубый	It is rude to interrupt.
+generous	щедрый	They made a generous donation.
+stubborn	упрямый	Do not be so stubborn!
+flexible	гибкий	My schedule is quite flexible.
+efficient	эффективный	The new system is efficient and cheap.
+convenient	удобный	A taxi is convenient at night.
+expensive	дорогой	This restaurant is too expensive.
+cheap	дешёвый	The hostel was cheap and clean.
+crowded	переполненный	The metro is crowded in the morning.
+peaceful	мирный, спокойный	The village is peaceful at night.
+noisy	шумный	The street is noisy on weekends.
+gloomy	мрачный	The sky looks gloomy today.

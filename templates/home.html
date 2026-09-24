@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel">
+  <h1 style="margin-bottom: 4px;">Привет, {{ nav.name }}!</h1>
+  <p class="muted" style="margin-top: 0;">
+    {% if due_today > 0 %}
+      Сегодня к повторению — {{ due_today }} карточек. Не забывайте про повторения: так слова остаются в памяти надолго.
+    {% else %}
+      На сегодня всё повторено. Можно добавить новые слова или почитать текст.
+    {% endif %}
+  </p>
+
+  <div class="actions">
+    <a class="btn" href="/cards">{% if due_today > 0 %}Повторить {{ due_today }}{% else %}Открыть карточки{% endif %}</a>
+    <a class="btn ghost" href="/reading">Читать</a>
+    <a class="btn ghost" href="/grammar">Грамматика</a>
+  </div>
+</section>
+
+<section class="grid cols-4">
+  <div class="metric">
+    <div class="value accent">{{ nav.streak }}</div>
+    <div class="label">дней подряд</div>
+  </div>
+  <div class="metric">
+    <div class="value">{{ accuracy_text }}%</div>
+    <div class="label">точность ответов</div>
+  </div>
+  <div class="metric">
+    <div class="value">{{ learned }}</div>
+    <div class="label">слов в работе</div>
+  </div>
+  <div class="metric">
+    <div class="value">{{ reviews_today }}</div>
+    <div class="label">повторений сегодня</div>
+  </div>
+</section>
+
+<section class="panel" style="margin-top: 20px;">
+  <h3>Активность за 14 дней</h3>
+  <div class="chart">
+    {% for bar in bars %}
+      <div class="col" title="{{ bar.label }}: {{ bar.reviews }}">
+        <div class="bar" style="height: {{ bar.percent }}%">
+          <span style="height: {{ bar.success_percent }}%"></span>
+        </div>
+        <div class="label">{{ bar.label }}</div>
+      </div>
+    {% endfor %}
+  </div>
+  <p class="muted small">
+    Светлая часть столбика — все повторения, тёмная — успешные (оценка 3 и выше).
+  </p>
+</section>
+
+<section class="grid cols-2">
+  <div class="panel">
+    <h3>Карточки</h3>
+    <p class="muted small">Всего: {{ total_cards }} · новых: {{ new_cards }} · освоено: {{ learned }}</p>
+    <a class="btn ghost small" href="/cards">Управлять карточками</a>
+  </div>
+  <div class="panel">
+    <h3>Чтение</h3>
+    <p class="muted small">Переведено слов по клику: {{ translations }}</p>
+    <a class="btn ghost small" href="/reading">Открыть тексты</a>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel">
+  <div class="actions" style="justify-content: space-between;">
+    <h1 style="margin: 0;">Грамматика</h1>
+    <span class="tag">Упражнение {{ number }} из {{ total }}</span>
+  </div>
+  <p class="muted small" style="margin-bottom: 18px;">Тема: {{ topic }}</p>
+
+  <p style="font-size: 20px; font-weight: 600;">{{ prompt }}</p>
+
+  <form data-grammar data-exercise-id="{{ id }}">
+    {% for option in options %}
+      <label class="option">
+        <input type="radio" name="answer" value="{{ loop.index0 }}" />
+        {{ option }}
+      </label>
+    {% endfor %}
+    <button class="btn" type="submit">Проверить</button>
+    <a class="btn ghost" href="/grammar?n={{ next_offset }}">Следующее упражнение →</a>
+  </form>
+
+  <div data-grammar-feedback></div>
+</section>
+{% endblock %}

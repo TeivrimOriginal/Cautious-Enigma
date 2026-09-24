@@ -1,0 +1,6 @@
+target
+.git
+.env
+.cargo
+vercel.json
+README.md

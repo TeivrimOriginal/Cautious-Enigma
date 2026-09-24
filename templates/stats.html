@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel">
+  <h1>Статистика</h1>
+  <p class="muted" style="margin-top: 0;">Как продвигается обучение: стрики, точность и состояние карточек.</p>
+</section>
+
+<section class="grid cols-4">
+  <div class="metric">
+    <div class="value accent">{{ current_streak }}</div>
+    <div class="label">текущий стрик</div>
+  </div>
+  <div class="metric">
+    <div class="value">{{ longest }}</div>
+    <div class="label">рекорд стрика</div>
+  </div>
+  <div class="metric">
+    <div class="value">{{ accuracy_text }}%</div>
+    <div class="label">точность ({{ successful_reviews }} из {{ total_reviews }})</div>
+  </div>
+  <div class="metric">
+    <div class="value">{{ reviews_per_day_text }}</div>
+    <div class="label">повторений в день</div>
+  </div>
+</section>
+
+<section class="grid cols-2" style="margin-top: 20px;">
+  <div class="panel">
+    <h3>Карточки</h3>
+    <table>
+      <tbody>
+        <tr><td>Всего</td><td style="text-align: right;">{{ total_cards }}</td></tr>
+        <tr><td>Новые</td><td style="text-align: right;">{{ new_cards }}</td></tr>
+        <tr><td>В работе</td><td style="text-align: right;">{{ learned }}</td></tr>
+        <tr><td>К повторению сегодня</td><td style="text-align: right;">{{ due_today }}</td></tr>
+        <tr><td>Переведено по клику</td><td style="text-align: right;">{{ translations }}</td></tr>
+        <tr><td>Активных дней</td><td style="text-align: right;">{{ days_active }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h3>Стадии освоения</h3>
+    {% for bucket in buckets %}
+      <div style="margin-bottom: 12px;">
+        <div class="actions" style="justify-content: space-between;">
+          <span>{{ bucket.label }}</span>
+          <span class="muted small">{{ bucket.count }} · {{ bucket.percent_text }}%</span>
+        </div>
+        <div class="progress"><span style="width: {{ bucket.percent }}%"></span></div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <h3>Последние дни активности</h3>
+  {% if history.is_empty() %}
+    <p class="muted">Пока нет повторений — начните с карточек.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>Дата</th><th>Повторений</th><th>Успешных</th><th style="text-align: right;">Точность</th></tr>
+      </thead>
+      <tbody>
+        {% for row in history %}
+          <tr>
+            <td>{{ row.day }}</td>
+            <td>{{ row.reviews }}</td>
+            <td>{{ row.successful }}</td>
+            <td style="text-align: right;">{{ row.accuracy_text }}%</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+{% endblock %}
