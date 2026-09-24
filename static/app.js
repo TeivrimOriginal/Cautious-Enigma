@@ -33,8 +33,37 @@
     },
   };
 
-  /* ---------- Произношение (Web Speech API) ---------- */
+  /* ---------- Тема оформления ---------- */
 
+  const THEME_KEY = "linguarust.theme";
+
+  function initTheme() {
+    const button = document.getElementById("theme-toggle");
+    if (!button) return;
+
+    const isDark = () => document.documentElement.dataset.theme === "dark";
+
+    const sync = () => {
+      button.textContent = isDark() ? "☀️" : "🌙";
+    };
+    sync();
+
+    button.addEventListener("click", () => {
+      if (isDark()) {
+        delete document.documentElement.dataset.theme;
+      } else {
+        document.documentElement.dataset.theme = "dark";
+      }
+      try {
+        localStorage.setItem(THEME_KEY, isDark() ? "dark" : "light");
+      } catch (err) {
+        /* приватный режим */
+      }
+      sync();
+    });
+  }
+
+  /* ---------- Произношение (Web Speech API) ---------- */
   function speak(word) {
     if (!("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
@@ -246,6 +275,7 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
+    initTheme();
     initReader();
     initGrammar();
   });

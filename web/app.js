@@ -230,6 +230,13 @@
 
   function dueCards() {
     const day = today();
+    if (weakOnly) {
+      // Режим тренировки: самые забываемые слова, независимо от даты.
+      const byErrors = new Map(weakWords(50).map((word) => [word.front, word.errors]));
+      return state.cards
+        .filter((card) => byErrors.has(card.front))
+        .sort((a, b) => (byErrors.get(b.front) || 0) - (byErrors.get(a.front) || 0));
+    }
     return state.cards
       .filter((card) => card.dueDate && card.dueDate <= day)
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.repetitions - b.repetitions);
@@ -271,6 +278,33 @@
   /* ------------------------------------------------------------------ *
    * Статистика
    * ------------------------------------------------------------------ */
+
+  /** Слова, которые чаще всего забывались: требуют отдельного внимания. */
+  function weakWords(limit = 8) {
+    const errors = new Map();
+    const attempts = new Map();
+
+    state.reviews.forEach((review) => {
+      attempts.set(review.cardId, (attempts.get(review.cardId) || 0) + 1);
+      if (review.quality < 3) errors.set(review.cardId, (errors.get(review.cardId) || 0) + 1);
+    });
+
+    return [...errors.entries()]
+      .map(([cardId, count]) => {
+        const card = state.cards.find((item) => item.id === cardId);
+        if (!card) return null;
+        return {
+          front: card.front,
+          back: card.back,
+          errors: count,
+          attempts: attempts.get(cardId) || count,
+          mastery: mastery(card.repetitions),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.errors - a.errors || b.attempts - a.attempts)
+      .slice(0, limit);
+  }
 
   function stats() {
     const days = [...new Set(state.reviews.map((review) => review.day))].sort();
@@ -315,6 +349,45 @@
       byDay,
     };
   }
+
+  /** Скачивает карточки в CSV (с BOM, чтобы Excel открыл кириллицу). */
+  function exportCsv() {
+    const quote = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const lines = state.cards.map((card) =>
+      [card.front, card.back, card.example].map(quote).join(";"),
+    );
+    const csv = "﻿word;translation;example\n" + lines.join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `linguarust-cards-${today()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** Разбирает вставленный CSV: разделитель ; , или табуляция. */
+  function importCsv(text) {
+    let added = 0;
+    let skipped = 0;
+
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"))
+      .forEach((line) => {
+        const [front = "", back = "", example = ""] = line.split(/[;\t]|,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+        if (addCard(front, back, example)) added += 1;
+        else skipped += 1;
+      });
+
+    // Сообщение переживает перерисовку страницы.
+    csvMessage = `Добавлено: ${added}, пропущено: ${skipped}`;
+    if (added > 0) route();
+  }
+
+  let csvMessage = "";
 
   /* ------------------------------------------------------------------ *
    * Представления
@@ -413,6 +486,9 @@
   /** Активный фильтр списка карточек: все / к повторению / новые / в работе. */
   let cardFilter = "all";
 
+  /** Режим тренировки слабых слов (список повторений строится по ошибкам). */
+  let weakOnly = false;
+
   const FILTERS = [
     { id: "all", label: "Все" },
     { id: "due", label: "К повторению" },
@@ -433,7 +509,8 @@
     });
 
     const review = card
-      ? `<section class="panel review-card">
+      ? `${weakOnly ? '<div class="notice">Режим тренировки слабых слов: <button class="btn ghost small" data-weak="off">выйти</button></div>' : ""}
+      <section class="panel review-card">
           <p class="muted small" style="margin:0">Карточек к повторению: ${due.length}</p>
           <div class="word">${escapeHtml(card.front)} ${speakButton(card.front)}</div>
           <details class="reveal">
@@ -489,6 +566,22 @@
           <button class="btn" type="submit">Добавить карточку</button>
         </form>
       </section>
+
+      <details class="panel" id="csv-panel">
+        <summary><strong>Импорт и экспорт CSV</strong></summary>
+        <div class="actions" style="margin:12px 0">
+          <button class="btn ghost small" data-csv="export">Скачать карточки в CSV</button>
+          <span class="muted small">Формат: <code>слово;перевод;пример</code> — по строке на карточку</span>
+        </div>
+        <label class="field">
+          <span>Вставьте список слов</span>
+          <textarea id="csv-input" rows="5" placeholder="deadline;срок сдачи;The deadline is Friday.&#10;profit;прибыль;They made a good profit."></textarea>
+        </label>
+        <div class="actions">
+          <button class="btn small" data-csv="import">Импортировать</button>
+          <span class="muted small" id="csv-result">${escapeHtml(csvMessage)}</span>
+        </div>
+      </details>
 
       <section class="panel">
         <div class="actions" style="justify-content:space-between">
@@ -682,6 +775,32 @@
       })
       .join("");
 
+    const weak = weakWords(8);
+    const weakPanel = `
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between">
+          <h3 style="margin:0">Слабые слова</h3>
+          ${weak.length ? '<button class="btn small" data-weak="on">Тренировать</button>' : ""}
+        </div>
+        ${
+          weak.length
+            ? `<ul class="card-list">
+                ${weak
+                  .map(
+                    (word) => `<li>
+                      <div class="card-front">${escapeHtml(word.front)} ${speakButton(word.front)}</div>
+                      <div class="card-back">${escapeHtml(word.back)}</div>
+                      <span class="tag due">ошибок: ${word.errors} из ${word.attempts}</span>
+                      <div class="mastery" title="освоено на ${word.mastery}%"><span style="width:${word.mastery}%"></span></div>
+                    </li>`,
+                  )
+                  .join("")}
+              </ul>
+              <p class="muted small">Слова, которые вы забывали чаще всего. Кнопка «Тренировать» повторяет их вне очереди.</p>`
+            : '<p class="muted">Пока нет слов, которые вы забывали бы слишком часто. Так держать!</p>'
+        }
+      </section>`;
+
     return `
       <section class="panel">
         <h1>Статистика</h1>
@@ -728,7 +847,9 @@
         ${rows
           ? `<table><thead><tr><th>Дата</th><th>Повторений</th><th>Успешных</th><th style="text-align:right">Точность</th></tr></thead><tbody>${rows}</tbody></table>`
           : '<p class="muted">Пока нет повторений — начните с карточек.</p>'}
-      </section>`;
+      </section>
+
+      ${weakPanel}`;
   }
 
   /* ------------------------------------------------------------------ *
@@ -761,6 +882,9 @@
     }
     const s = stats();
     profileBox.innerHTML = `
+      <button class="btn ghost small" id="theme" title="Сменить тему" aria-label="Сменить тему">
+        ${currentTheme() === "dark" ? "☀️" : "🌙"}
+      </button>
       <span class="badge">🔥 ${s.current} дн.</span>
       ${s.due > 0 ? `<span class="badge hot">${s.due} к повторению</span>` : ""}
       <button class="btn ghost small" id="export" title="Скачать резервную копию">Экспорт</button>
@@ -768,6 +892,7 @@
       <button class="btn ghost small" id="reset">Сбросить</button>
       <input type="file" id="import-file" accept="application/json" hidden />`;
 
+    document.getElementById("theme").addEventListener("click", toggleTheme);
     document.getElementById("export").addEventListener("click", exportProgress);
     document.getElementById("import").addEventListener("click", () =>
       document.getElementById("import-file").click(),
@@ -911,9 +1036,28 @@
       return;
     }
 
+    const csvButton = event.target.closest("[data-csv]");
+    if (csvButton) {
+      if (csvButton.dataset.csv === "export") {
+        exportCsv();
+      } else {
+        const input = document.getElementById("csv-input");
+        if (input && input.value.trim()) importCsv(input.value);
+      }
+      return;
+    }
+
     const filterButton = event.target.closest("[data-filter]");
     if (filterButton) {
       cardFilter = filterButton.dataset.filter;
+      route();
+      return;
+    }
+
+    const weakButton = event.target.closest("[data-weak]");
+    if (weakButton) {
+      weakOnly = weakButton.dataset.weak === "on";
+      location.hash = "#/cards";
       route();
       return;
     }
@@ -1078,6 +1222,31 @@
     );
     popup.style.left = `${left}px`;
     popup.style.top = `${rect.bottom + window.scrollY + 8}px`;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Тема оформления
+   * ------------------------------------------------------------------ */
+
+  const THEME_KEY = "linguarust.theme";
+
+  function currentTheme() {
+    return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  }
+
+  function toggleTheme() {
+    const next = currentTheme() === "dark" ? "light" : "dark";
+    if (next === "dark") {
+      document.documentElement.dataset.theme = "dark";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+    try {
+      localStorage.setItem(THEME_KEY, next);
+    } catch (err) {
+      /* приватный режим — просто не сохраняем */
+    }
+    renderProfileBox();
   }
 
   /* ------------------------------------------------------------------ *

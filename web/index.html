@@ -9,6 +9,15 @@
       content="LinguaRust: карточки с интервальным повторением, чтение с переводом по клику, грамматика и статистика. Работает прямо в браузере."
     />
     <link rel="stylesheet" href="style.css" />
+    <script>
+      // Тема применяется до отрисовки, чтобы не было вспышки светлого фона.
+      try {
+        const saved = localStorage.getItem("linguarust.theme");
+        if (saved === "dark" || (!saved && matchMedia("(prefers-color-scheme: dark)").matches)) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      } catch (e) {}
+    </script>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icon.svg" />

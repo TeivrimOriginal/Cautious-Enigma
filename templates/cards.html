@@ -8,6 +8,12 @@
   <div class="notice ok">{{ notice }}</div>
 {% endif %}
 
+{% if weak_mode %}
+  <div class="notice">
+    Режим тренировки слабых слов: <a href="/cards">выйти</a>
+  </div>
+{% endif %}
+
 {% if !due.is_empty() %}
   {% let card = due[0] %}
   <section class="panel review-card">

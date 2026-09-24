@@ -35,6 +35,17 @@ pub struct StatsPage {
     pub reviews_per_day_text: String,
     pub buckets: Vec<Bucket>,
     pub history: Vec<DayRow>,
+    pub weak: Vec<WeakView>,
+}
+
+/// Слабое слово для шаблона: счётчики ошибок уже посчитаны в SQL.
+#[derive(Debug, Clone)]
+pub struct WeakView {
+    pub front: String,
+    pub back: String,
+    pub errors: i64,
+    pub attempts: i64,
+    pub mastery: f64,
 }
 
 page_impl!(StatsPage {
@@ -55,6 +66,7 @@ page_impl!(StatsPage {
     reviews_per_day_text: String,
     buckets: Vec<Bucket>,
     history: Vec<DayRow>,
+    weak: Vec<WeakView>,
 });
 
 /// Сколько карточек находится в каждой стадии освоения.
@@ -146,6 +158,18 @@ pub async fn index(State(state): State<AppState>, profile: Profile) -> AppResult
         .collect();
     history.reverse();
     page.history = history;
+
+    page.weak = queries::weak_words(&state.db, profile.id, 8)
+        .await?
+        .into_iter()
+        .map(|word| WeakView {
+            front: word.front,
+            back: word.back,
+            errors: word.errors,
+            attempts: word.attempts,
+            mastery: stats::mastery_percent(word.repetitions),
+        })
+        .collect();
 
     html(page)
 }

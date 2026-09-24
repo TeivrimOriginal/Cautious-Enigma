@@ -76,4 +76,32 @@
     </table>
   {% endif %}
 </section>
+
+<section class="panel">
+  <div class="actions" style="justify-content: space-between;">
+    <h3 style="margin: 0;">Слабые слова</h3>
+    {% if !weak.is_empty() %}
+      <a class="btn small" href="/cards?weak=1">Тренировать</a>
+    {% endif %}
+  </div>
+  {% if weak.is_empty() %}
+    <p class="muted">Пока нет слов, которые вы забывали бы слишком часто. Так держать!</p>
+  {% else %}
+    <ul class="card-list">
+      {% for word in weak %}
+        <li>
+          <div class="card-front">
+            {{ word.front }}
+            <button class="icon-btn" type="button" data-speak="{{ word.front }}"
+              title="Произнести" aria-label="Произнести">🔊</button>
+          </div>
+          <div class="card-back">{{ word.back }}</div>
+          <span class="tag due">ошибок: {{ word.errors }} из {{ word.attempts }}</span>
+          <div class="mastery" title="освоено на {{ word.mastery }}%"><span style="width: {{ word.mastery }}%"></span></div>
+        </li>
+      {% endfor %}
+    </ul>
+    <p class="muted small">Слова, которые вы забывали чаще всего. «Тренировать» повторяет их вне очереди.</p>
+  {% endif %}
+</section>
 {% endblock %}

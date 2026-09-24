@@ -7,7 +7,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{CardRow, DailyActivity, GrammarRow, ReviewSummary, TextRow};
+use crate::models::{CardRow, DailyActivity, GrammarRow, ReviewSummary, TextRow, WeakWord};
 use crate::sm2::Sm2State;
 
 const SUMMARY_SQL: &str = r#"
@@ -187,6 +187,30 @@ pub async fn apply_review(
 
     tx.commit().await?;
     Ok((next, outcome.next_due))
+}
+
+/// Слова, которые чаще всего забывались: сортировка по числу ошибок.
+/// Используется и для страницы статистики, и для режима тренировки.
+pub async fn weak_words(pool: &PgPool, profile_id: Uuid, limit: i64) -> AppResult<Vec<WeakWord>> {
+    Ok(sqlx::query_as::<_, WeakWord>(
+        "SELECT c.id,
+                c.front,
+                c.back,
+                c.repetitions,
+                count(*) FILTER (WHERE l.quality < 3) AS errors,
+                count(*)                                    AS attempts
+         FROM cards c
+         JOIN review_log l ON l.card_id = c.id
+         WHERE c.profile_id = $1
+         GROUP BY c.id, c.front, c.back, c.repetitions
+         HAVING count(*) FILTER (WHERE l.quality < 3) > 0
+         ORDER BY errors DESC, attempts DESC, c.front
+         LIMIT $2",
+    )
+    .bind(profile_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?)
 }
 
 pub async fn list_texts(pool: &PgPool) -> AppResult<Vec<TextRow>> {

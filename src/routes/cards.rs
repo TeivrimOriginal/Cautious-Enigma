@@ -27,6 +27,7 @@ pub struct CardsPage {
     pub new_cards: i64,
     pub error: String,
     pub notice: String,
+    pub weak_mode: bool,
 }
 
 page_impl!(CardsPage {
@@ -37,6 +38,7 @@ page_impl!(CardsPage {
     new_cards: i64,
     error: String,
     notice: String,
+    weak_mode: bool,
 });
 
 /// Представление карточки для шаблона.
@@ -89,6 +91,9 @@ pub struct Feedback {
     error: Option<String>,
     #[serde(default)]
     added: Option<String>,
+    /// `1` — повторять только слабые слова, вне очереди по дате.
+    #[serde(default)]
+    weak: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,8 +119,31 @@ pub async fn index(
 ) -> AppResult<Html<String>> {
     let nav = nav_context(&state, Some(&profile)).await?;
     let today = today();
+    let weak_mode = feedback.weak.as_deref() == Some("1");
+
     let rows = queries::all_cards(&state.db, profile.id).await?;
-    let due_rows = queries::due_cards(&state.db, profile.id, 50).await?;
+    let mut due_rows = queries::due_cards(&state.db, profile.id, 50).await?;
+
+    if weak_mode {
+        // Слабые слова повторяем вне очереди: берём их из всех карточек
+        // и сортируем по числу ошибок (по убыванию).
+        let weak = queries::weak_words(&state.db, profile.id, 50).await?;
+        let by_id: std::collections::HashMap<i64, (i64, i64)> = weak
+            .iter()
+            .map(|word| (word.id, (word.errors, word.attempts)))
+            .collect();
+        let mut order: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+        for (position, word) in weak.iter().enumerate() {
+            order.insert(word.id, position as i64);
+        }
+        due_rows = rows
+            .iter()
+            .filter(|row| by_id.contains_key(&row.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        due_rows.sort_by_key(|row| order.get(&row.id).copied().unwrap_or(i64::MAX));
+    }
+
     let summary = queries::review_summary(&state.db, profile.id).await?;
 
     let mut page = CardsPage::new(nav, "Карточки", "cards");
@@ -133,6 +161,7 @@ pub async fn index(
         Some("exists") => "Такое слово уже есть в карточках".to_string(),
         _ => String::new(),
     };
+    page.weak_mode = weak_mode;
     html(page)
 }
 

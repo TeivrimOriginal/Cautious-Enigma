@@ -6,6 +6,15 @@
     <title>{{ title }} · LinguaRust</title>
     <meta name="description" content="LinguaRust — изучение английского языка: карточки с интервальным повторением, чтение и грамматика" />
     <style>{{ css|safe }}</style>
+    <script>
+      // Тема применяется до отрисовки, чтобы не было вспышки светлого фона.
+      try {
+        var saved = localStorage.getItem("linguarust.theme");
+        if (saved === "dark" || (!saved && matchMedia("(prefers-color-scheme: dark)").matches)) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <header class="topbar">
@@ -20,6 +29,7 @@
           <a href="/stats" class="{% if current == "stats" %}active{% endif %}">Статистика</a>
         </nav>
         <div class="nav-right">
+          <button class="btn ghost small" id="theme-toggle" type="button" title="Сменить тему" aria-label="Сменить тему">🌙</button>
           {% if nav.has_profile %}
             <span class="badge">🔥 {{ nav.streak }} дн.</span>
             {% if nav.due > 0 %}

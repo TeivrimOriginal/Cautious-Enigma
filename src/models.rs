@@ -66,3 +66,14 @@ pub struct DailyActivity {
     pub reviews: i64,
     pub successful: i64,
 }
+
+/// Слово, которое пользователь забывал чаще всего.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct WeakWord {
+    pub id: i64,
+    pub front: String,
+    pub back: String,
+    pub repetitions: i32,
+    pub errors: i64,
+    pub attempts: i64,
+}

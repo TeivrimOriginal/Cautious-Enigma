@@ -13,6 +13,25 @@
   --warn: #e8a13a;
   --radius: 12px;
   --shadow: 0 1px 2px rgba(20, 25, 45, 0.06), 0 8px 24px rgba(20, 25, 45, 0.06);
+  color-scheme: light;
+}
+
+/* Тёмная тема: те же переменные, другие значения. */
+[data-theme="dark"] {
+  --bg: #0f1219;
+  --surface: #171b26;
+  --surface-alt: #1e2433;
+  --border: #2a3142;
+  --text: #e7eaf3;
+  --muted: #98a1b5;
+  --accent: #7c99ff;
+  --accent-dark: #6b8afd;
+  --accent-soft: #1e2740;
+  --good: #46b97e;
+  --bad: #ef6a6a;
+  --warn: #e8b34a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 28px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
 }
 
 * {
@@ -215,6 +234,19 @@ a:hover {
   color: var(--accent-dark);
 }
 
+[data-theme="dark"] .btn.soft {
+  color: var(--accent);
+}
+
+[data-theme="dark"] .btn.ghost {
+  color: var(--accent);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .btn.ghost:hover {
+  background: var(--accent-soft);
+}
+
 .btn.good {
   background: var(--good);
 }
@@ -311,6 +343,16 @@ label.field span {
 .notice.err {
   background: #fdecec;
   color: #a13232;
+}
+
+[data-theme="dark"] .notice.ok {
+  background: #163024;
+  color: #7fd7a8;
+}
+
+[data-theme="dark"] .notice.err {
+  background: #331a1c;
+  color: #ff9c9c;
 }
 
 .muted {
@@ -426,6 +468,16 @@ details.reveal > summary::-webkit-details-marker {
 .tag.ok {
   background: #e8f6ee;
   color: #1d6b45;
+}
+
+[data-theme="dark"] .tag.due {
+  background: #331a1c;
+  color: #ff9c9c;
+}
+
+[data-theme="dark"] .tag.ok {
+  background: #163024;
+  color: #7fd7a8;
 }
 
 /* ---------- Чтение ---------- */
