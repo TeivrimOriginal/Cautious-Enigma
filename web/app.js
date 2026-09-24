@@ -347,6 +347,26 @@
     const days = [];
     for (let i = 13; i >= 0; i -= 1) days.push(addDays(today(), -i));
     const max = Math.max(1, ...days.map((day) => s.byDay.get(day) || 0));
+    const wotd = wordOfTheDay();
+    const wotdInCards = wotd && state.cards.some((card) => normalize(card.front) === normalize(wotd.front));
+
+    const wordCard = wotd
+      ? `<section class="panel">
+          <div class="actions" style="justify-content:space-between;align-items:flex-start">
+            <div>
+              <span class="tag">Слово дня</span>
+              <h2 style="margin:8px 0 4px">${escapeHtml(wotd.front)} ${speakButton(wotd.front)}</h2>
+              <p style="margin:0">${escapeHtml(wotd.back)}</p>
+              ${wotd.example ? `<p class="muted small" style="margin:6px 0 0">${escapeHtml(wotd.example)}</p>` : ""}
+            </div>
+            ${
+              wotdInCards
+                ? '<span class="tag ok">уже в карточках</span>'
+                : `<button class="btn small" data-add-front="${escapeHtml(wotd.front)}">В карточки</button>`
+            }
+          </div>
+        </section>`
+      : "";
 
     return `
       <section class="panel">
@@ -362,6 +382,8 @@
           <a class="btn ghost" href="#/grammar">Грамматика</a>
         </div>
       </section>
+
+      ${wordCard}
 
       <section class="grid cols-4">
         <div class="metric"><div class="value accent">${s.current}</div><div class="label">дней подряд</div></div>
@@ -388,15 +410,32 @@
       </section>`;
   }
 
+  /** Активный фильтр списка карточек: все / к повторению / новые / в работе. */
+  let cardFilter = "all";
+
+  const FILTERS = [
+    { id: "all", label: "Все" },
+    { id: "due", label: "К повторению" },
+    { id: "new", label: "Новые" },
+    { id: "learning", label: "В работе" },
+  ];
+
   function renderCards() {
     const due = dueCards();
     const s = stats();
     const card = due[0];
 
+    const filtered = state.cards.filter((item) => {
+      if (cardFilter === "due") return due.some((entry) => entry.id === item.id);
+      if (cardFilter === "new") return item.repetitions === 0;
+      if (cardFilter === "learning") return item.repetitions > 0;
+      return true;
+    });
+
     const review = card
       ? `<section class="panel review-card">
           <p class="muted small" style="margin:0">Карточек к повторению: ${due.length}</p>
-          <div class="word">${escapeHtml(card.front)}</div>
+          <div class="word">${escapeHtml(card.front)} ${speakButton(card.front)}</div>
           <details class="reveal">
             <summary class="btn ghost">Показать перевод</summary>
             <div class="answer">${escapeHtml(card.back)}</div>
@@ -418,13 +457,13 @@
           <a class="btn" href="#add">Добавить слово</a>
         </section>`;
 
-    const rows = [...state.cards]
+    const rows = [...filtered]
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map((card) => {
         const percent = mastery(card.repetitions);
         const isDue = card.dueDate && card.dueDate <= today();
         return `<li>
-            <div class="card-front">${escapeHtml(card.front)}</div>
+            <div class="card-front">${escapeHtml(card.front)} ${speakButton(card.front)}</div>
             <div class="card-back">${escapeHtml(card.back)}</div>
             <div class="mastery" title="освоено на ${percent}%"><span style="width:${percent}%"></span></div>
             <span class="tag ${isDue ? "due" : ""}">${isDue ? "к повторению" : escapeHtml(card.dueDate)}</span>
@@ -452,8 +491,16 @@
       </section>
 
       <section class="panel">
-        <h3>Все карточки (${s.totalCards})</h3>
-        ${rows ? `<ul class="card-list">${rows}</ul>` : '<p class="muted">Пока пусто. Начните с текста для чтения — слова оттуда добавляются по клику.</p>'}
+        <div class="actions" style="justify-content:space-between">
+          <h3 style="margin:0">Карточки (${s.totalCards})</h3>
+          <div class="actions">
+            ${FILTERS.map(
+              (item) =>
+                `<button class="btn small ${cardFilter === item.id ? "" : "ghost"}" data-filter="${item.id}">${item.label}</button>`,
+            ).join("")}
+          </div>
+        </div>
+        ${rows ? `<ul class="card-list">${rows}</ul>` : '<p class="muted">В этом фильтре пусто. Смените фильтр или добавьте новое слово.</p>'}
       </section>`;
   }
 
@@ -716,7 +763,16 @@
     profileBox.innerHTML = `
       <span class="badge">🔥 ${s.current} дн.</span>
       ${s.due > 0 ? `<span class="badge hot">${s.due} к повторению</span>` : ""}
-      <button class="btn ghost small" id="reset">Сбросить</button>`;
+      <button class="btn ghost small" id="export" title="Скачать резервную копию">Экспорт</button>
+      <button class="btn ghost small" id="import" title="Загрузить резервную копию">Импорт</button>
+      <button class="btn ghost small" id="reset">Сбросить</button>
+      <input type="file" id="import-file" accept="application/json" hidden />`;
+
+    document.getElementById("export").addEventListener("click", exportProgress);
+    document.getElementById("import").addEventListener("click", () =>
+      document.getElementById("import-file").click(),
+    );
+    document.getElementById("import-file").addEventListener("change", importProgress);
     document.getElementById("reset").addEventListener("click", () => {
       if (confirm("Удалить все карточки и статистику этого браузера?")) {
         localStorage.removeItem(STORAGE_KEY);
@@ -724,6 +780,42 @@
         route();
       }
     });
+  }
+
+  /** Скачивает резервную копию прогресса в JSON. */
+  function exportProgress() {
+    const payload = JSON.stringify({ ...state, exportedAt: new Date().toISOString() }, null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `linguarust-${today()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** Загружает резервную копию, предварительно проверяя структуру. */
+  async function importProgress(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const parsed = JSON.parse(await file.text());
+      if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.cards)) {
+        throw new Error("в файле нет списка карточек");
+      }
+      if (!confirm(`Заменить текущий прогресс (${state.cards.length} карточек) данными из файла (${parsed.cards.length})?`)) {
+        event.target.value = "";
+        return;
+      }
+      state = { ...emptyState(), ...parsed };
+      saveState();
+      route();
+    } catch (err) {
+      alert(`Не удалось загрузить файл: ${err.message}`);
+    } finally {
+      event.target.value = "";
+    }
   }
 
   function markActiveNav(view) {
@@ -816,6 +908,13 @@
         removeCard(card.id);
         route();
       }
+      return;
+    }
+
+    const filterButton = event.target.closest("[data-filter]");
+    if (filterButton) {
+      cardFilter = filterButton.dataset.filter;
+      route();
       return;
     }
 
