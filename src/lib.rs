@@ -26,7 +26,7 @@ use tower_http::trace::TraceLayer;
 use crate::config::Config;
 use crate::error::handle_panic;
 use crate::routes::stats as stats_page;
-use crate::routes::{api, cards, dictionary, grammar, home, reading};
+use crate::routes::{api, auth as auth_pages, cards, dictionary, grammar, home, reading};
 
 /// Статика встраивается в бинарник: на serverless нет доступа к файловой системе.
 pub const STYLE_CSS: &str = include_str!("../static/style.css");
@@ -45,6 +45,18 @@ pub fn build_router(state: AppState) -> Router {
         // Страницы
         .route("/", get(home::index))
         .route("/welcome", get(home::welcome))
+        .route(
+            "/register",
+            get(auth_pages::register_form).post(auth_pages::register),
+        )
+        .route(
+            "/login",
+            get(auth_pages::login_form).post(auth_pages::login),
+        )
+        .route("/logout", post(auth_pages::logout))
+        .route("/guest", post(auth_pages::guest))
+        .route("/account", get(auth_pages::account))
+        // Старые маршруты оставлены для ссылок из старых страниц.
         .route("/profile", post(home::create_profile))
         .route("/profile/reset", post(home::reset_profile))
         .route("/cards", get(cards::index))

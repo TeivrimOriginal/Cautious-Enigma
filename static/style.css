@@ -126,6 +126,15 @@ a:hover {
   font-size: 14px;
 }
 
+.profile-link {
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .badge {
   background: var(--accent-soft);
   color: var(--accent-dark);

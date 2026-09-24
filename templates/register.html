@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel" style="max-width: 480px; margin: 30px auto;">
+  <h1 style="margin-bottom: 4px;">Регистрация</h1>
+  <p class="muted" style="margin-top: 0;">
+    Логин и пароль нужны, чтобы прогресс не потерялся при смене браузера.
+  </p>
+
+  {% if error.is_empty() == false %}
+    <div class="notice err">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="/register">
+    <label class="field">
+      <span>Логин</span>
+      <input
+        type="text"
+        name="username"
+        value="{{ username }}"
+        minlength="3"
+        maxlength="32"
+        pattern="[A-Za-z0-9_\-]+"
+        placeholder="student_1"
+        autocomplete="username"
+        required
+        autofocus
+      />
+    </label>
+
+    <label class="field">
+      <span>Пароль (минимум {{ min_password }} символов)</span>
+      <input type="password" name="password" minlength="{{ min_password }}" autocomplete="new-password" required />
+    </label>
+
+    <label class="field">
+      <span>Пароль ещё раз</span>
+      <input type="password" name="password2" minlength="{{ min_password }}" autocomplete="new-password" required />
+    </label>
+
+    <div class="actions">
+      <button class="btn" type="submit">Создать аккаунт</button>
+      <a class="btn ghost" href="/login">Уже есть аккаунт</a>
+    </div>
+  </form>
+
+  <p class="muted small" style="margin-top: 18px; margin-bottom: 0;">
+    Пароль хранится только в виде хеша Argon2id — восстановить его нельзя.<br />
+    Не хочется регистрироваться? <a href="/">Продолжите как гость</a>.
+  </p>
+</section>
+{% endblock %}

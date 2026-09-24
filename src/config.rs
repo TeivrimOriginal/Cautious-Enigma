@@ -27,7 +27,7 @@ pub enum ConfigError {
 pub struct Config {
     /// Строка подключения к PostgreSQL (Neon в production).
     pub database_url: String,
-    /// Ключ подписи cookie с профилем.
+    /// Ключ подписи старой гостевой cookie (совместимость с версией до аккаунтов).
     pub cookie_key: Key,
     /// Адрес локального сервера (не используется на Vercel).
     pub bind_addr: SocketAddr,
@@ -42,8 +42,8 @@ pub struct Config {
 impl Config {
     /// Читает конфигурацию из окружения.
     ///
-    /// В production ключ cookie обязателен: иначе после каждого холодного
-    /// старта на Vercel подписи перестают совпадать и профили «слетают».
+    /// В production ключ нужен для чтения старых гостевых cookie; новые
+    /// аккаунты идентифицируются серверными сессиями в PostgreSQL.
     pub fn from_env() -> Result<Self, ConfigError> {
         let database_url =
             env::var("DATABASE_URL").map_err(|_| ConfigError::Missing("DATABASE_URL"))?;

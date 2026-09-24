@@ -7,7 +7,7 @@ use serde::Deserialize;
 use tower_cookies::Cookies;
 
 use crate::auth::{self, MaybeProfile};
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::routes::{NavContext, html, nav_context, page_impl, today};
 use crate::{AppState, queries, seed, stats};
 
@@ -172,26 +172,28 @@ async fn welcome_page(state: AppState, error: String) -> AppResult<Html<String>>
     html(page)
 }
 
-/// Создаёт профиль по имени и ставит подписанную cookie.
+/// Создаёт гостевой профиль по имени и ставит cookie сессии.
+/// Старый маршрут сохранён для совместимости с закладками.
 pub async fn create_profile(
     State(state): State<AppState>,
     cookies: Cookies,
     Form(form): Form<NameForm>,
 ) -> AppResult<Redirect> {
-    auth::upsert_profile(&state.db, &cookies, &state.cfg.cookie_key, &form.name)
-        .await
-        .map_err(|err| match err {
-            AppError::BadRequest(message) => AppError::BadRequest(message),
-            other => other,
-        })?;
-
+    auth::login_as_guest(
+        &state.db,
+        &cookies,
+        &state.cfg.cookie_key,
+        state.cfg.is_production,
+        &form.name,
+    )
+    .await?;
     Ok(Redirect::to("/cards"))
 }
 
-/// Забывает профиль: cookie удаляется, история остаётся в базе.
+/// Завершает текущую сессию. История остаётся в базе.
 pub async fn reset_profile(State(state): State<AppState>, cookies: Cookies) -> AppResult<Redirect> {
-    auth::clear_profile(&cookies, &state.cfg.cookie_key);
-    Ok(Redirect::to("/welcome"))
+    auth::logout(&state.db, &cookies, &state.cfg.cookie_key).await?;
+    Ok(Redirect::to("/"))
 }
 
 /// Проверка живости для платформенного мониторинга.

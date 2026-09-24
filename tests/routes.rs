@@ -72,6 +72,53 @@ async fn root_redirects_guest_to_welcome_screen() {
 }
 
 #[tokio::test]
+async fn registration_page_is_available_for_guests() {
+    let (status, body) = get("/register").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Создать аккаунт"));
+    assert!(body.contains("name=\"username\""));
+    assert!(body.contains("name=\"password2\""));
+}
+
+#[tokio::test]
+async fn login_page_preserves_validation_error() {
+    let (status, body) = get("/login?error=Invalid+login&username=student_1").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Invalid login"));
+    assert!(body.contains("value=\"student_1\""));
+}
+
+#[tokio::test]
+async fn account_requires_a_session() {
+    let response = test_app()
+        .oneshot(
+            Request::builder()
+                .uri("/account")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("роутер не ответил");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn logout_without_session_redirects_home() {
+    let response = test_app()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/logout")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("роутер не ответил");
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(response.headers().get("location").unwrap(), "/");
+}
+
+#[tokio::test]
 async fn unknown_path_renders_error_page() {
     let (status, body) = get("/definitely-missing-page").await;
     assert_eq!(status, StatusCode::NOT_FOUND);

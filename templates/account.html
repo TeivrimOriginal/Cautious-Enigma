@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel" style="max-width: 520px; margin: 30px auto;">
+  <h1 style="margin-bottom: 4px;">{{ name }}</h1>
+  {% if registered %}
+    <p class="muted" style="margin-top: 0;">Аккаунт создан {{ created_at }}. Прогресс привязан к логину.</p>
+  {% else %}
+    <p class="muted" style="margin-top: 0;">
+      Гостевой режим с {{ created_at }}. Сессия привязана к этому браузеру —
+      после очистки cookie доступ к гостю исчезнет.
+    </p>
+  {% endif %}
+
+  {% if let Some(summary) = summary %}
+    <div class="grid cols-2" style="margin: 18px 0;">
+      <div class="metric"><div class="value">{{ summary.total_cards }}</div><div class="label">карточек</div></div>
+      <div class="metric"><div class="value">{{ summary.total_reviews }}</div><div class="label">повторений</div></div>
+    </div>
+  {% endif %}
+
+  {% if registered %}
+    <form method="post" action="/logout">
+      <button class="btn ghost" type="submit">Выйти из аккаунта</button>
+    </form>
+  {% else %}
+    <div class="actions">
+      <a class="btn" href="/register">Создать аккаунт</a>
+      <a class="btn ghost" href="/login">Войти</a>
+    </div>
+    <p class="muted small" style="margin-top: 16px; margin-bottom: 0;">
+      При регистрации прогресс этого гостя сохранится — карточки не придётся начинать заново.
+    </p>
+  {% endif %}
+</section>
+{% endblock %}

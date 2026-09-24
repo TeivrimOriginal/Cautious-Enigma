@@ -31,15 +31,17 @@
         <div class="nav-right">
           <button class="btn ghost small" id="theme-toggle" type="button" title="Сменить тему" aria-label="Сменить тему">🌙</button>
           {% if nav.has_profile %}
+            <a class="profile-link" href="/account" title="Открыть профиль">{{ nav.name }}</a>
             <span class="badge">🔥 {{ nav.streak }} дн.</span>
             {% if nav.due > 0 %}
               <span class="badge hot">{{ nav.due }} к повторению</span>
             {% endif %}
-            <form method="post" action="/profile/reset">
-              <button class="btn ghost small" type="submit" title="Забыть профиль на этом устройстве">Выйти</button>
+            <form method="post" action="/logout">
+              <button class="btn ghost small" type="submit" title="Завершить сессию">Выйти</button>
             </form>
           {% else %}
-            <a class="btn small" href="/">Начать</a>
+            <a class="btn ghost small" href="/login">Войти</a>
+            <a class="btn small" href="/register">Регистрация</a>
           {% endif %}
         </div>
       </div>

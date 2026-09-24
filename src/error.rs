@@ -56,7 +56,7 @@ impl AppError {
     pub fn public_message(&self) -> String {
         match self {
             AppError::NotFound => "Страница не найдена".to_string(),
-            AppError::Unauthorized => "Сначала представьтесь: укажите имя".to_string(),
+            AppError::Unauthorized => "Войдите или зарегистрируйтесь, чтобы продолжить".to_string(),
             AppError::BadRequest(msg) | AppError::Conflict(msg) => msg.clone(),
             AppError::Database(err) => format!("База данных недоступна: {err}"),
             AppError::Migration(err) => format!("Не удалось применить миграции: {err}"),

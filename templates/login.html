@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel" style="max-width: 420px; margin: 30px auto;">
+  <h1 style="margin-bottom: 4px;">Вход</h1>
+  <p class="muted" style="margin-top: 0;">Введите логин и пароль аккаунта.</p>
+
+  {% if error.is_empty() == false %}
+    <div class="notice err">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="/login">
+    <label class="field">
+      <span>Логин</span>
+      <input type="text" name="username" value="{{ username }}" maxlength="32" autocomplete="username" required autofocus />
+    </label>
+    <label class="field">
+      <span>Пароль</span>
+      <input type="password" name="password" autocomplete="current-password" required />
+    </label>
+    <div class="actions">
+      <button class="btn" type="submit">Войти</button>
+      <a class="btn ghost" href="/register">Создать аккаунт</a>
+    </div>
+  </form>
+
+  <p class="muted small" style="margin-top: 18px; margin-bottom: 0;">
+    Гостевой прогресс привязан к этой браузерной сессии. <a href="/">Войти как гость</a>.
+  </p>
+</section>
+{% endblock %}

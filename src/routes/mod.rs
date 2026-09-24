@@ -1,6 +1,7 @@
 //! HTTP-маршруты и общий контекст шаблонов.
 
 pub mod api;
+pub mod auth;
 pub mod cards;
 pub mod dictionary;
 pub mod grammar;
