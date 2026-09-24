@@ -57,6 +57,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/grammar", get(grammar::index))
         .route("/stats", get(stats_page::index))
         .route("/healthz", get(home::health))
+        .fallback(error::not_found)
         // JSON API
         .route("/api/translate", get(api::translate))
         .route("/api/cards", post(api::add_card))

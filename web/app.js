@@ -384,6 +384,9 @@
                 `<button class="btn ${item.css}" data-grade="${item.value}" data-card="${card.id}">${item.label}</button>`,
             ).join("")}
           </div>
+          <p class="muted small" style="margin-top:14px;margin-bottom:0">
+            Пробел — показать ответ, клавиши 1–4 — оценка по порядку кнопок.
+          </p>
         </section>`
       : `<section class="panel" style="text-align:center">
           <h2>На сегодня повторений нет 🎉</h2>
@@ -948,6 +951,69 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * Горячие клавиши
+   * ------------------------------------------------------------------ */
+
+  const QUALITY_BY_KEY = { 1: 1, 2: 3, 3: 4, 4: 5 };
+
+  function initShortcuts() {
+    document.addEventListener("keydown", (event) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+      const focused = event.target;
+      const isTyping =
+        focused instanceof HTMLElement &&
+        (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA");
+
+      if (isTyping) {
+        if (event.key === "Escape") focused.blur();
+        return;
+      }
+
+      const { view } = currentRoute();
+
+      if (event.key === "/") {
+        const search = document.getElementById("dict-search");
+        if (search) {
+          event.preventDefault();
+          search.focus();
+        }
+        return;
+      }
+
+      if (view === "cards") {
+        if (event.key === " " || event.key === "Enter") {
+          const reveal = document.querySelector("details.reveal");
+          if (reveal) {
+            event.preventDefault();
+            reveal.open = !reveal.open;
+          }
+          return;
+        }
+        const quality = QUALITY_BY_KEY[event.key];
+        if (quality) {
+          const card = dueCards()[0];
+          if (card) {
+            event.preventDefault();
+            gradeCard(card.id, quality);
+            route();
+          }
+        }
+        return;
+      }
+
+      if (view === "grammar") {
+        const index = Number(event.key) - 1;
+        const option = document.querySelectorAll('input[name="answer"]')[index];
+        if (option) {
+          event.preventDefault();
+          option.checked = true;
+        }
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
    * Запуск
    * ------------------------------------------------------------------ */
 
@@ -963,6 +1029,7 @@
     }
 
     window.addEventListener("hashchange", route);
+    initShortcuts();
     route();
 
     // Офлайн-режим: работает только на https и localhost.

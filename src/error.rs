@@ -150,3 +150,9 @@ pub fn handle_panic(_panic: Box<dyn std::any::Any + Send + 'static>) -> Response
     tracing::error!("обработчик запроса завершился паникой");
     AppError::Internal("panic".into()).into_response()
 }
+
+/// Заглушка для неизвестных путей: отдаёт ту же страницу ошибки,
+/// что и обработчик `AppError::NotFound`.
+pub async fn not_found() -> Response {
+    AppError::NotFound.into_response()
+}
