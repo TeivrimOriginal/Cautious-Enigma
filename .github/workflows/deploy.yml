@@ -22,7 +22,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Проверить наличие секретов
+        id: check
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ] || [ -z "${{ secrets.DATABASE_URL }}" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Не заданы VERCEL_TOKEN или DATABASE_URL — деплой пропущен"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Задеплоить на Vercel
+        if: steps.check.outputs.ready == 'true'
         uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
