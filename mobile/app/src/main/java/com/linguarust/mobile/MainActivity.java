@@ -9,6 +9,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.TypedValue;
@@ -25,9 +26,14 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
+import java.util.Set;
 
 /** Главный экран нативной мобильной версии LinguaRust. */
 public final class MainActivity extends Activity {
@@ -49,6 +55,15 @@ public final class MainActivity extends Activity {
     private boolean grammarAnswered;
     private int grammarChoice = -1;
     private ReadingText selectedText;
+    private final List<ExamQuestion> examQuestions = new ArrayList<>();
+    private final Random examRandom = new Random();
+    private int examIndex;
+    private int examCorrect;
+    private int examAnsweredCount;
+    private int examChoice = -1;
+    private boolean examAnswered;
+    private CountDownTimer examTimer;
+    private TextView examTimerView;
 
     private int background;
     private int surface;
@@ -72,6 +87,12 @@ public final class MainActivity extends Activity {
         store = new MobileStore(this, repository);
         buildShell();
         render();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (examTimer != null) examTimer.cancel();
+        super.onDestroy();
     }
 
     private void configureColors() {
@@ -152,6 +173,12 @@ public final class MainActivity extends Activity {
             grammarAnswered = false;
             grammarChoice = -1;
         }
+        if ("exam".equals(key)) {
+            startExam();
+        } else if (examTimer != null) {
+            examTimer.cancel();
+            examTimer = null;
+        }
         render();
     }
 
@@ -181,6 +208,12 @@ public final class MainActivity extends Activity {
                 break;
             case "settings":
                 renderSettings();
+                break;
+            case "exam":
+                renderExam();
+                break;
+            case "exam-result":
+                renderExamResult();
                 break;
             default:
                 renderHome();
@@ -554,6 +587,8 @@ public final class MainActivity extends Activity {
         page.addView(space(10));
         page.addView(menuCard("Статистика", "XP, стрик, точность и прогресс", "stats"));
         page.addView(space(10));
+        page.addView(menuCard("Экзамен", "10 вопросов за 90 секунд", "exam"));
+        page.addView(space(10));
         page.addView(menuCard("Настройки", "Профиль и локальное хранилище", "settings"));
         content.addView(page);
     }
@@ -685,6 +720,170 @@ public final class MainActivity extends Activity {
         content.addView(page);
     }
 
+    private void startExam() {
+        examQuestions.clear();
+        examIndex = 0;
+        examCorrect = 0;
+        examChoice = -1;
+        examAnswered = false;
+        examAnsweredCount = 0;
+
+        List<DictionaryEntry> pool = new ArrayList<>(repository.dictionary());
+        if (pool.size() < 4) return;
+        for (int i = 0; i < 10 && !pool.isEmpty(); i++) {
+            DictionaryEntry entry = pool.remove(examRandom.nextInt(pool.size()));
+            boolean ruToEn = i % 2 == 0;
+            List<String> options = new ArrayList<>();
+            Set<String> used = new HashSet<>();
+            String correct = ruToEn ? entry.front : entry.back;
+            options.add(correct);
+            used.add(correct);
+            while (options.size() < 4 && !pool.isEmpty()) {
+                DictionaryEntry candidate = pool.get(examRandom.nextInt(pool.size()));
+                String option = ruToEn ? candidate.front : candidate.back;
+                if (used.add(option)) options.add(option);
+            }
+            while (options.size() < 4) options.add("—");
+            Collections.shuffle(options, examRandom);
+            examQuestions.add(new ExamQuestion(
+                    entry,
+                    ruToEn,
+                    options,
+                    options.indexOf(correct)
+            ));
+        }
+
+        if (examTimer != null) examTimer.cancel();
+        examTimer = new CountDownTimer(90_000L, 1_000L) {
+            @Override
+            public void onTick(long millisUntilFinished) {
+                if (examTimerView != null) {
+                    long seconds = millisUntilFinished / 1000L;
+                    examTimerView.setText(String.format(
+                            Locale.US, "%02d:%02d", seconds / 60, seconds % 60
+                    ));
+                }
+            }
+
+            @Override
+            public void onFinish() {
+                if (screen.equals("exam")) finishExam();
+            }
+        }.start();
+    }
+
+    private void renderExam() {
+        topTitle.setText(t("Экзамен"));
+        if (examQuestions.isEmpty()) {
+            LinearLayout page = page();
+            page.addView(label("Недостаточно слов для экзамена", 18, textColor, true));
+            content.addView(page);
+            return;
+        }
+        if (examIndex >= examQuestions.size()) {
+            renderExamResult();
+            return;
+        }
+
+        ExamQuestion question = examQuestions.get(examIndex);
+        LinearLayout page = page();
+        LinearLayout meta = row();
+        meta.addView(label("Вопрос " + (examIndex + 1) + " из " + examQuestions.size(),
+                14, mutedColor), new LinearLayout.LayoutParams(0, dp(32), 1));
+        examTimerView = label("01:30", 18, accent, true);
+        meta.addView(examTimerView);
+        page.addView(meta);
+        page.addView(space(10));
+
+        LinearLayout card = panel();
+        card.addView(label(question.ruToEn ? "Выбери слово" : "Выбери перевод", 13, accent, true));
+        card.addView(space(10));
+        card.addView(label(question.prompt(), 27, textColor, true));
+        if (question.ruToEn && !question.entry.example.isEmpty()) {
+            card.addView(space(6));
+            card.addView(label(question.entry.example, 14, mutedColor));
+        }
+        card.addView(space(18));
+        for (int i = 0; i < question.options.size(); i++) {
+            int choice = i;
+            Button option = secondaryButton(question.options.get(i), v -> answerExam(choice));
+            if (examAnswered) {
+                if (choice == question.correctIndex) option.setBackground(round(good, 12));
+                else if (choice == examChoice) option.setBackground(round(bad, 12));
+            }
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(50));
+            params.bottomMargin = dp(8);
+            card.addView(option, params);
+        }
+        if (examAnswered) {
+            boolean correct = examChoice == question.correctIndex;
+            card.addView(space(6));
+            card.addView(label(correct ? "Верно! +8 XP" : "Ошибка. +2 XP", 15,
+                    correct ? good : bad, true));
+            Button next = primaryButton(
+                    examIndex + 1 == examQuestions.size() ? "Завершить экзамен" : "Следующий вопрос",
+                    v -> {
+                        if (examIndex + 1 >= examQuestions.size()) finishExam();
+                        else {
+                            examIndex++;
+                            examChoice = -1;
+                            examAnswered = false;
+                            render();
+                        }
+                    }
+            );
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(48));
+            params.topMargin = dp(10);
+            card.addView(next, params);
+        }
+        page.addView(card);
+        content.addView(page);
+    }
+
+    private void answerExam(int choice) {
+        if (examAnswered || examIndex >= examQuestions.size()) return;
+        ExamQuestion question = examQuestions.get(examIndex);
+        examChoice = choice;
+        examAnswered = true;
+        examAnsweredCount++;
+        boolean correct = choice == question.correctIndex;
+        if (correct) examCorrect++;
+        store.recordExam(correct);
+        render();
+    }
+
+    private void finishExam() {
+        if (examTimer != null) {
+            examTimer.cancel();
+            examTimer = null;
+        }
+        screen = "exam-result";
+        render();
+    }
+
+    private void renderExamResult() {
+        topTitle.setText(t("Результат экзамена"));
+        LinearLayout page = page();
+        LinearLayout result = panel();
+        result.setGravity(Gravity.CENTER);
+        result.addView(label("Экзамен завершён", 23, textColor, true));
+        result.addView(space(10));
+        result.addView(label(examCorrect + " / " + examAnsweredCount, 38, accent, true));
+        result.addView(label("правильных ответов", 15, mutedColor));
+        result.addView(space(8));
+        int earnedXp = examCorrect * 8 + Math.max(0, examAnsweredCount - examCorrect) * 2;
+        result.addView(label("+" + earnedXp + " XP", 18, good, true));
+        page.addView(result);
+        page.addView(space(16));
+        page.addView(primaryButton("Пройти ещё раз", v -> {
+            screen = "exam";
+            startExam();
+            render();
+        }));
+        page.addView(secondaryButton("В меню", v -> navigate("more")));
+        content.addView(page);
+    }
+
     private void renderStats() {
         topTitle.setText(t("Статистика"));
         LinearLayout page = page();
@@ -696,6 +895,7 @@ public final class MainActivity extends Activity {
         addStat(page, "Карточки", store.cards().size() + " всего · " + store.learnedCount() + " в работе");
         addStat(page, "Повторения", store.reviews() + " · точность " + store.accuracy() + "%");
         addStat(page, "Грамматика", store.grammarCorrect() + " / " + store.grammarTotal());
+        addStat(page, "Экзамен", store.examCorrect() + " / " + store.examTotal());
         addStat(page, "Серия", store.streak() + " дн.");
         page.addView(space(18));
         page.addView(secondaryButton("Сбросить локальный прогресс", v -> confirmReset()));
@@ -862,6 +1062,24 @@ public final class MainActivity extends Activity {
         return row;
     }
 
+    private static final class ExamQuestion {
+        final DictionaryEntry entry;
+        final boolean ruToEn;
+        final List<String> options;
+        final int correctIndex;
+
+        ExamQuestion(DictionaryEntry entry, boolean ruToEn, List<String> options, int correctIndex) {
+            this.entry = entry;
+            this.ruToEn = ruToEn;
+            this.options = options;
+            this.correctIndex = correctIndex;
+        }
+
+        String prompt() {
+            return ruToEn ? entry.back : entry.front;
+        }
+    }
+
     private String t(String value) {
         if (!store.english() || value == null) return value;
         String result = value;
@@ -877,6 +1095,8 @@ public final class MainActivity extends Activity {
             result = "Streak: " + result.substring(7);
         } else if (result.startsWith("Упражнение ")) {
             result = "Exercise " + result.substring(11);
+        } else if (result.startsWith("Вопрос ")) {
+            result = "Question " + result.substring(8);
         } else if (result.startsWith("Всего: ")) {
             result = "Total: " + result.substring(7);
         } else if (result.startsWith("Ошибка. Правильный ответ: ")) {
@@ -941,6 +1161,20 @@ public final class MainActivity extends Activity {
             case "Грамматика": return "Grammar";
             case "Чтение": return "Reading";
             case "Статистика": return "Statistics";
+            case "Экзамен": return "Exam";
+            case "10 вопросов за 90 секунд": return "10 questions in 90 seconds";
+            case "Недостаточно слов для экзамена": return "Not enough words for an exam";
+            case "Выбери слово": return "Choose the word";
+            case "Выбери перевод": return "Choose the translation";
+            case "Верно! +8 XP": return "Correct! +8 XP";
+            case "Ошибка. +2 XP": return "Mistake. +2 XP";
+            case "Завершить экзамен": return "Finish exam";
+            case "Следующий вопрос": return "Next question";
+            case "Результат экзамена": return "Exam result";
+            case "Экзамен завершён": return "Exam finished";
+            case "правильных ответов": return "correct answers";
+            case "Пройти ещё раз": return "Try again";
+            case "В меню": return "To menu";
             case "Настройки": return "Settings";
             case "27 упражнений с объяснением ошибок": return "27 exercises with explanations";
             case "4 текста уровней A2–B2": return "4 texts from A2 to B2";
@@ -985,7 +1219,7 @@ public final class MainActivity extends Activity {
             result = result.replace("следующий интервал: ", "next interval: ")
                     .replace(" дн.", " days");
         }
-        if (result.startsWith("Exercise ")) {
+        if (result.startsWith("Exercise ") || result.startsWith("Question ")) {
             result = result.replace(" из ", " of ");
         }
         if (result.contains(" всего · ")) {

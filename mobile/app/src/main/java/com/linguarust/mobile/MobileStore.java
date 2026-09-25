@@ -31,6 +31,8 @@ public final class MobileStore {
     private static final String GRAMMAR_CORRECT = "grammar_correct";
     private static final String REVIEW_LOG = "review_log";
     private static final String ENGLISH = "english";
+    private static final String EXAM_TOTAL = "exam_total";
+    private static final String EXAM_CORRECT = "exam_correct";
 
     private final SharedPreferences preferences;
     private final ContentRepository content;
@@ -132,6 +134,22 @@ public final class MobileStore {
         return preferences.getInt(CORRECT, 0);
     }
 
+    public int examTotal() {
+        return preferences.getInt(EXAM_TOTAL, 0);
+    }
+
+    public int examCorrect() {
+        return preferences.getInt(EXAM_CORRECT, 0);
+    }
+
+    public void recordExam(boolean correct) {
+        preferences.edit()
+                .putInt(EXAM_TOTAL, examTotal() + 1)
+                .putInt(EXAM_CORRECT, examCorrect() + (correct ? 1 : 0))
+                .putInt(XP, xp() + (correct ? 8 : 2))
+                .apply();
+    }
+
     public int grammarTotal() {
         return preferences.getInt(GRAMMAR_TOTAL, 0);
     }
@@ -216,6 +234,8 @@ public final class MobileStore {
                 .remove(GRAMMAR_TOTAL)
                 .remove(GRAMMAR_CORRECT)
                 .remove(REVIEW_LOG)
+                .remove(EXAM_TOTAL)
+                .remove(EXAM_CORRECT)
                 .apply();
         cards.clear();
         seedStarterCards();
