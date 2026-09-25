@@ -56,6 +56,24 @@ $env:DATABASE_URL = "postgres://linguarust:linguarust@localhost:5432/linguarust"
 cargo run
 ```
 
+## Мобильная версия Android
+
+В папке `mobile/` находится нативная офлайн-версия для Android: Java, Android
+Studio и Gradle, без внешних библиотек. Она использует общие файлы из `data/`,
+SM-2 и локальное хранилище `SharedPreferences`.
+
+Открой именно папку `mobile` в Android Studio или собери APK:
+
+```powershell
+cd mobile
+$env:JAVA_HOME = "D:\12344\jbr"
+$env:ANDROID_HOME = "C:\Users\teivrim\AppData\Local\Android\Sdk"
+.\gradlew.bat :app:assembleDebug
+```
+
+APK: `mobile/app/build/outputs/apk/debug/app-debug.apk`. Подробная инструкция
+по USB-установке находится в [`mobile/README.md`](mobile/README.md).
+
 ## Две версии проекта
 
 | | Статическая (GitHub Pages) | Серверная (основная локальная) |
@@ -196,6 +214,7 @@ DATABASE_URL=postgres://linguarust:linguarust@localhost:5432/linguarust \
 api/axum.rs           serverless-функция для Vercel
 web/                  статическая версия сайта (GitHub Pages): страница,
                        скрипт, service worker, иконка, манифест
+mobile/               нативное Android-приложение на Java для Android Studio
 scripts/              локальные команды запуска
 tests/integration.rs  интеграционные тесты с PostgreSQL
  src/
