@@ -30,6 +30,7 @@ public final class MobileStore {
     private static final String GRAMMAR_TOTAL = "grammar_total";
     private static final String GRAMMAR_CORRECT = "grammar_correct";
     private static final String REVIEW_LOG = "review_log";
+    private static final String ENGLISH = "english";
 
     private final SharedPreferences preferences;
     private final ContentRepository content;
@@ -55,6 +56,14 @@ public final class MobileStore {
         if (!clean.isEmpty()) {
             preferences.edit().putString(PROFILE, clean).apply();
         }
+    }
+
+    public boolean english() {
+        return preferences.getBoolean(ENGLISH, false);
+    }
+
+    public void setEnglish(boolean enabled) {
+        preferences.edit().putBoolean(ENGLISH, enabled).apply();
     }
 
     public List<CardState> cards() {

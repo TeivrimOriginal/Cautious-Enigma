@@ -128,6 +128,7 @@ public final class MainActivity extends Activity {
 
     private void addNavButton(LinearLayout parent, String title, String key) {
         Button button = button(title, v -> navigate(key));
+        button.setTag(key);
         button.setAllCaps(false);
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         button.setPadding(2, 2, 2, 2);
@@ -194,11 +195,8 @@ public final class MainActivity extends Activity {
             View child = bottomNav.getChildAt(i);
             if (!(child instanceof Button)) continue;
             Button nav = (Button) child;
-            String title = nav.getText().toString();
-            boolean active = ("home".equals(selectedTab) && "Главная".equals(title))
-                    || ("cards".equals(selectedTab) && "Карточки".equals(title))
-                    || ("dictionary".equals(selectedTab) && "Словарь".equals(title))
-                    || ("more".equals(selectedTab) && "Ещё".equals(title));
+            String key = String.valueOf(nav.getTag());
+            boolean active = key.equals(selectedTab);
             nav.setTextColor(active ? accent : mutedColor);
             nav.setBackground(round(active ? surfaceMuted : Color.TRANSPARENT, 12));
         }
@@ -279,7 +277,7 @@ public final class MainActivity extends Activity {
     }
 
     private void renderCards() {
-        topTitle.setText("Карточки");
+        topTitle.setText(t("Карточки"));
         if (reviewingCard == null) {
             List<CardState> due = store.dueCards();
             reviewingCard = due.isEmpty() ? null : due.get(0);
@@ -355,13 +353,13 @@ public final class MainActivity extends Activity {
     }
 
     private void renderDictionary() {
-        topTitle.setText("Словарь");
+        topTitle.setText(t("Словарь"));
         LinearLayout page = page();
         page.addView(label("340 слов для практики", 16, mutedColor));
         page.addView(space(12));
         dictionarySearch = new EditText(this);
         dictionarySearch.setSingleLine(true);
-        dictionarySearch.setHint("Поиск по английскому или русскому");
+        dictionarySearch.setHint(t("Поиск по английскому или русскому"));
         dictionarySearch.setTextColor(textColor);
         dictionarySearch.setHintTextColor(mutedColor);
         dictionarySearch.setBackground(round(surface, 12));
@@ -438,9 +436,9 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(box, new ViewGroup.LayoutParams(-1, -2));
         new AlertDialog.Builder(this)
-                .setTitle("История: " + card.front)
+                .setTitle(t("История: " + card.front))
                 .setView(scroll)
-                .setPositiveButton("Закрыть", null)
+                .setPositiveButton(t("Закрыть"), null)
                 .show();
     }
 
@@ -454,10 +452,10 @@ public final class MainActivity extends Activity {
             box.addView(label(entry.example, 14, mutedColor));
         }
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("Слово")
+                .setTitle(t("Слово"))
                 .setView(box)
-                .setNegativeButton("Закрыть", null)
-                .setPositiveButton("В карточки", (d, which) -> {
+                .setNegativeButton(t("Закрыть"), null)
+                .setPositiveButton(t("В карточки"), (d, which) -> {
                     boolean added = store.addCard(entry.front, entry.back, entry.example);
                     toast(added ? "Слово добавлено" : "Слово уже есть в карточках");
                 })
@@ -466,7 +464,7 @@ public final class MainActivity extends Activity {
     }
 
     private void renderMore() {
-        topTitle.setText("Ещё");
+        topTitle.setText(t("Ещё"));
         LinearLayout page = page();
         page.addView(label("Практика", 24, textColor, true));
         page.addView(space(14));
@@ -494,7 +492,7 @@ public final class MainActivity extends Activity {
     }
 
     private void renderGrammar() {
-        topTitle.setText("Грамматика");
+        topTitle.setText(t("Грамматика"));
         List<GrammarEntry> entries = repository.grammar();
         LinearLayout page = page();
         if (entries.isEmpty()) {
@@ -557,7 +555,7 @@ public final class MainActivity extends Activity {
     }
 
     private void renderReadingList() {
-        topTitle.setText("Чтение");
+        topTitle.setText(t("Чтение"));
         LinearLayout page = page();
         page.addView(label("Выбери текст для практики", 16, mutedColor));
         page.addView(space(14));
@@ -586,7 +584,7 @@ public final class MainActivity extends Activity {
     }
 
     private void renderReadingDetail() {
-        topTitle.setText(selectedText == null ? "Чтение" : selectedText.title);
+        topTitle.setText(t(selectedText == null ? "Чтение" : selectedText.title));
         LinearLayout page = page();
         if (selectedText != null) {
             page.addView(label(selectedText.level, 13, accent, true));
@@ -608,7 +606,7 @@ public final class MainActivity extends Activity {
     }
 
     private void renderStats() {
-        topTitle.setText("Статистика");
+        topTitle.setText(t("Статистика"));
         LinearLayout page = page();
         MobileStore.LevelInfo level = store.level();
         page.addView(label("Твой прогресс", 24, textColor, true));
@@ -635,7 +633,7 @@ public final class MainActivity extends Activity {
     }
 
     private void renderSettings() {
-        topTitle.setText("Настройки");
+        topTitle.setText(t("Настройки"));
         LinearLayout page = page();
         LinearLayout profilePanel = panel();
         profilePanel.addView(label("Профиль", 14, mutedColor));
@@ -645,6 +643,23 @@ public final class MainActivity extends Activity {
         profilePanel.addView(secondaryButton("Изменить имя", v -> showProfile()));
         page.addView(profilePanel);
         page.addView(space(12));
+
+        LinearLayout languagePanel = panel();
+        languagePanel.addView(label("Язык интерфейса", 14, mutedColor));
+        languagePanel.addView(space(5));
+        languagePanel.addView(label(store.english() ? "English" : "Русский", 24, textColor, true));
+        languagePanel.addView(space(10));
+        languagePanel.addView(secondaryButton(
+                store.english() ? "Переключить на русский" : "Переключить на английский",
+                v -> {
+                    store.setEnglish(!store.english());
+                    toast(store.english() ? "English interface" : "Русский интерфейс");
+                    render();
+                }
+        ));
+        page.addView(languagePanel);
+        page.addView(space(12));
+
         LinearLayout about = panel();
         about.addView(label("О приложении", 17, textColor, true));
         about.addView(space(6));
@@ -657,7 +672,7 @@ public final class MainActivity extends Activity {
     private void showProfile() {
         EditText input = new EditText(this);
         input.setSingleLine(true);
-        input.setHint("Имя");
+        input.setHint(t("Имя"));
         input.setText(store.profileName());
         input.setTextColor(textColor);
         input.setHintTextColor(mutedColor);
@@ -667,10 +682,10 @@ public final class MainActivity extends Activity {
         holder.setPadding(dp(20), dp(4), dp(20), 0);
         holder.addView(input, new FrameLayout.LayoutParams(-1, dp(52)));
         new AlertDialog.Builder(this)
-                .setTitle("Профиль")
+                .setTitle(t("Профиль"))
                 .setView(holder)
-                .setNegativeButton("Отмена", null)
-                .setPositiveButton("Сохранить", (dialog, which) -> {
+                .setNegativeButton(t("Отмена"), null)
+                .setPositiveButton(t("Сохранить"), (dialog, which) -> {
                     store.setProfileName(input.getText().toString());
                     render();
                 })
@@ -689,10 +704,10 @@ public final class MainActivity extends Activity {
         form.addView(space(8));
         form.addView(example);
         new AlertDialog.Builder(this)
-                .setTitle("Новая карточка")
+                .setTitle(t("Новая карточка"))
                 .setView(form)
-                .setNegativeButton("Отмена", null)
-                .setPositiveButton("Добавить", (dialog, which) -> {
+                .setNegativeButton(t("Отмена"), null)
+                .setPositiveButton(t("Добавить"), (dialog, which) -> {
                     boolean added = store.addCard(front.getText().toString(),
                             back.getText().toString(), example.getText().toString());
                     toast(added ? "Карточка добавлена" : "Нужны слово и перевод");
@@ -703,10 +718,10 @@ public final class MainActivity extends Activity {
 
     private void confirmReset() {
         new AlertDialog.Builder(this)
-                .setTitle("Сбросить прогресс?")
-                .setMessage("Карточки, XP и статистика этого профиля будут удалены.")
-                .setNegativeButton("Отмена", null)
-                .setPositiveButton("Сбросить", (dialog, which) -> {
+                .setTitle(t("Сбросить прогресс?"))
+                .setMessage(t("Карточки, XP и статистика этого профиля будут удалены."))
+                .setNegativeButton(t("Отмена"), null)
+                .setPositiveButton(t("Сбросить"), (dialog, which) -> {
                     store.resetProgress();
                     reviewingCard = null;
                     lastReviewedCard = null;
@@ -732,7 +747,7 @@ public final class MainActivity extends Activity {
     private EditText field(String hint) {
         EditText field = new EditText(this);
         field.setSingleLine(true);
-        field.setHint(hint);
+        field.setHint(t(hint));
         field.setTextColor(textColor);
         field.setHintTextColor(mutedColor);
         field.setPadding(dp(14), 0, dp(14), 0);
@@ -767,13 +782,147 @@ public final class MainActivity extends Activity {
         return row;
     }
 
+    private String t(String value) {
+        if (!store.english() || value == null) return value;
+        String result = value;
+        if (result.startsWith("Привет, ")) {
+            result = "Hello, " + result.substring(8);
+        } else if (result.startsWith("Сегодня к повторению — ")) {
+            result = "Due today — " + result.substring(23).replace(" карточек.", " cards.");
+        } else if (result.startsWith("История: ")) {
+            result = "History: " + result.substring(9);
+        } else if (result.startsWith("Уровень ")) {
+            result = "Level " + result.substring(8);
+        } else if (result.startsWith("Серия: ")) {
+            result = "Streak: " + result.substring(7);
+        } else if (result.startsWith("Упражнение ")) {
+            result = "Exercise " + result.substring(11);
+        } else if (result.startsWith("Всего: ")) {
+            result = "Total: " + result.substring(7);
+        } else if (result.startsWith("Ошибка. Правильный ответ: ")) {
+            result = "Wrong. Correct answer: " + result.substring(26);
+        } else if (result.startsWith("LinguaRust Mobile — ")) {
+            result = "LinguaRust Mobile is an offline learning app. "
+                    + "Dictionary, texts and exercises come from the shared project data folder.";
+        }
+
+        switch (result) {
+            case "Профиль": return "Profile";
+            case "Главная": return "Home";
+            case "Карточки": return "Cards";
+            case "Словарь": return "Dictionary";
+            case "Ещё": return "More";
+            case "На сегодня всё повторено. Можно добавить новое слово.":
+                return "All caught up for today. Add a new word.";
+            case "Цель дня": return "Daily goal";
+            case "Повторять": return "Review";
+            case "Открыть карточки": return "Open cards";
+            case "дней подряд": return "day streak";
+            case "точность": return "accuracy";
+            case "слов в работе": return "words in progress";
+            case "Слово дня": return "Word of the day";
+            case "Добавить в карточки": return "Add to cards";
+            case "Слово добавлено": return "Word added";
+            case "Слово уже есть в карточках": return "Word is already in your cards";
+            case "ПОВТОРЕНИЕ": return "REVIEW";
+            case "Опять": return "Again";
+            case "Сложно": return "Hard";
+            case "Нормально": return "Good";
+            case "Легко": return "Easy";
+            case "Показать ответ": return "Show answer";
+            case "Новое слово": return "New word";
+            case "Добавить слово": return "Add word";
+            case "Все слова": return "All words";
+            case "История повторений": return "Review history";
+            case "История пока пуста": return "No history yet";
+            case "Успешно · +10 XP": return "Success · +10 XP";
+            case "Ошибка · +2 XP": return "Mistake · +2 XP";
+            case "Закрыть": return "Close";
+            case "340 слов для практики": return "340 words to practise";
+            case "Поиск по английскому или русскому": return "Search in English or Russian";
+            case "Ничего не найдено": return "Nothing found";
+            case "Слово": return "Word";
+            case "В карточки": return "To cards";
+            case "Практика": return "Practice";
+            case "Профиль и локальное хранилище": return "Profile and local storage";
+            case "Карточка добавлена": return "Card added";
+            case "Нужны слово и перевод": return "Word and translation are required";
+            case "Карточки, XP и статистика этого профиля будут удалены.":
+                return "Cards, XP and statistics for this profile will be deleted.";
+            case "Ошибка. Правильный ответ: ": return "Wrong. Correct answer: ";
+            case "Грамматика": return "Grammar";
+            case "Чтение": return "Reading";
+            case "Статистика": return "Statistics";
+            case "Настройки": return "Settings";
+            case "27 упражнений с объяснением ошибок": return "27 exercises with explanations";
+            case "4 текста уровней A2–B2": return "4 texts from A2 to B2";
+            case "XP, стрик, точность и прогресс": return "XP, streak, accuracy and progress";
+            case "Упражнения не загрузились": return "Exercises could not be loaded";
+            case "Верно! +15 XP": return "Correct! +15 XP";
+            case "Следующее упражнение": return "Next exercise";
+            case "Выбери текст для практики": return "Choose a text to practise";
+            case "Тексты не загрузились": return "Texts could not be loaded";
+            case "К списку текстов": return "Back to texts";
+            case "Твой прогресс": return "Your progress";
+            case "Повторения": return "Reviews";
+            case "Серия": return "Streak";
+            case "Сбросить локальный прогресс": return "Reset local progress";
+            case "Изменить имя": return "Change name";
+            case "О приложении": return "About";
+            case "Имя": return "Name";
+            case "Отмена": return "Cancel";
+            case "Сохранить": return "Save";
+            case "Слово по-английски": return "English word";
+            case "Перевод": return "Translation";
+            case "Пример (необязательно)": return "Example (optional)";
+            case "Новая карточка": return "New card";
+            case "Добавить": return "Add";
+            case "Сбросить прогресс?": return "Reset progress?";
+            case "Сбросить": return "Reset";
+            case "Прогресс сброшен": return "Progress reset";
+            case "Русский": return "Russian";
+            case "English": return "English";
+            case "Язык интерфейса": return "Interface language";
+            case "Переключить на русский": return "Switch to Russian";
+            case "Переключить на английский": return "Switch to English";
+            default:
+                break;
+        }
+        if (result.startsWith("Streak: ")) {
+            result = result.replace("следующий интервал: ", "next interval: ")
+                    .replace(" дн.", " days");
+        }
+        if (result.startsWith("Exercise ")) {
+            result = result.replace(" из ", " of ");
+        }
+        if (result.contains(" всего · ")) {
+            result = result.replace(" всего · ", " total · ")
+                    .replace(" в работе", " in progress");
+        }
+        if (result.contains(" · точность ")) {
+            result = result.replace(" · точность ", " · accuracy ");
+        }
+        if (result.endsWith(" дн.")) {
+            result = result.substring(0, result.length() - 4) + " days";
+        }
+        if (result.startsWith("Level ")) {
+            result = result.replace("Новичок", "Beginner")
+                    .replace("Ученик", "Learner")
+                    .replace("Практик", "Practitioner")
+                    .replace("Знаток", "Expert")
+                    .replace("Продвинутый", "Advanced")
+                    .replace("Мастер", "Master");
+        }
+        return result;
+    }
+
     private TextView label(String value, float size, int color) {
         return label(value, size, color, false);
     }
 
     private TextView label(String value, float size, int color, boolean bold) {
         TextView view = new TextView(this);
-        view.setText(value);
+        view.setText(t(value));
         view.setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
         view.setTextColor(color);
         if (bold) view.setTypeface(Typeface.DEFAULT_BOLD);
@@ -800,7 +949,7 @@ public final class MainActivity extends Activity {
 
     private Button button(String title, View.OnClickListener listener, int backgroundColor, int foreground) {
         Button button = new Button(this);
-        button.setText(title);
+        button.setText(t(title));
         button.setAllCaps(false);
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         button.setTextColor(foreground);
@@ -853,6 +1002,6 @@ public final class MainActivity extends Activity {
     }
 
     private void toast(String message) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, t(message), Toast.LENGTH_SHORT).show();
     }
 }
