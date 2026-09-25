@@ -339,6 +339,10 @@ public final class MainActivity extends Activity {
             historyParams.topMargin = dp(8);
             page.addView(history, historyParams);
         }
+        Button compare = secondaryButton("Сравнить карточки", v -> chooseCompareCards());
+        LinearLayout.LayoutParams compareParams = new LinearLayout.LayoutParams(-1, dp(48));
+        compareParams.topMargin = dp(8);
+        page.addView(compare, compareParams);
         if (lastReviewedCard != null
                 && (reviewingCard == null || !lastReviewedCard.front.equals(reviewingCard.front))) {
             Button lastHistory = secondaryButton(
@@ -411,6 +415,82 @@ public final class MainActivity extends Activity {
             p.bottomMargin = dp(8);
             dictionaryResults.addView(item, p);
         }
+    }
+
+    private interface CardChoiceListener {
+        void onChosen(CardState card);
+    }
+
+    private void chooseCompareCards() {
+        List<CardState> all = store.cards();
+        if (all.size() < 2) {
+            new AlertDialog.Builder(this)
+                    .setTitle(t("Сравнение карточек"))
+                    .setMessage(t("Для сравнения добавь хотя бы две карточки."))
+                    .setPositiveButton(t("Закрыть"), null)
+                    .show();
+            return;
+        }
+        chooseCompareCard("Выбери первую карточку", first -> chooseCompareCard(
+                "Выбери вторую карточку",
+                second -> {
+                    if (!first.front.equalsIgnoreCase(second.front)) {
+                        showComparison(first, second);
+                    } else {
+                        toast("Выбери разные карточки");
+                    }
+                }
+        ));
+    }
+
+    private void chooseCompareCard(String title, CardChoiceListener listener) {
+        List<CardState> all = store.cards();
+        String[] items = new String[all.size()];
+        for (int i = 0; i < all.size(); i++) items[i] = all.get(i).front;
+        new AlertDialog.Builder(this)
+                .setTitle(t(title))
+                .setSingleChoiceItems(items, -1, (dialog, which) -> {
+                    dialog.dismiss();
+                    listener.onChosen(all.get(which));
+                })
+                .setNegativeButton(t("Отмена"), null)
+                .show();
+    }
+
+    private void showComparison(CardState left, CardState right) {
+        LinearLayout box = column();
+        box.setPadding(dp(18), dp(4), dp(18), dp(4));
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        addComparisonColumn(row, left, "Карточка 1");
+        addComparisonColumn(row, right, "Карточка 2");
+        box.addView(row);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box, new ViewGroup.LayoutParams(-1, -2));
+        new AlertDialog.Builder(this)
+                .setTitle(t("Сравнение карточек"))
+                .setView(scroll)
+                .setPositiveButton(t("Закрыть"), null)
+                .show();
+    }
+
+    private void addComparisonColumn(LinearLayout row, CardState card, String caption) {
+        LinearLayout column = panel();
+        column.addView(label(caption, 13, accent, true));
+        column.addView(space(6));
+        column.addView(label(card.front, 20, textColor, true));
+        column.addView(space(5));
+        column.addView(label(card.back, 15, mutedColor));
+        if (!card.example.isEmpty()) {
+            column.addView(space(5));
+            column.addView(label(card.example, 13, mutedColor));
+        }
+        column.addView(space(9));
+        column.addView(label("Повторения: " + card.repetitions, 13, textColor));
+        column.addView(label("Интервал: " + card.intervalDays + " дн.", 13, mutedColor));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1);
+        params.rightMargin = dp(5);
+        row.addView(column, params);
     }
 
     private void showHistory(CardState card) {
@@ -834,6 +914,14 @@ public final class MainActivity extends Activity {
             case "Добавить слово": return "Add word";
             case "Все слова": return "All words";
             case "История повторений": return "Review history";
+            case "Сравнение карточек": return "Card comparison";
+            case "Выбери первую карточку": return "Choose the first card";
+            case "Выбери вторую карточку": return "Choose the second card";
+            case "Для сравнения добавь хотя бы две карточки.":
+                return "Add at least two cards to compare them.";
+            case "Карточка 1": return "Card 1";
+            case "Карточка 2": return "Card 2";
+            case "Выбери разные карточки": return "Choose two different cards";
             case "История пока пуста": return "No history yet";
             case "Успешно · +10 XP": return "Success · +10 XP";
             case "Ошибка · +2 XP": return "Mistake · +2 XP";
@@ -887,6 +975,11 @@ public final class MainActivity extends Activity {
             case "Переключить на английский": return "Switch to English";
             default:
                 break;
+        }
+        if (result.startsWith("Повторения: ")) {
+            result = "Reviews: " + result.substring(13);
+        } else if (result.startsWith("Интервал: ")) {
+            result = "Interval: " + result.substring(10);
         }
         if (result.startsWith("Streak: ")) {
             result = result.replace("следующий интервал: ", "next interval: ")
