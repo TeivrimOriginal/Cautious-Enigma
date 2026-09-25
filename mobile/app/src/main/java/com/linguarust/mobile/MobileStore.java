@@ -29,6 +29,7 @@ public final class MobileStore {
     private static final String REVIEWS_TODAY = "reviews_today";
     private static final String GRAMMAR_TOTAL = "grammar_total";
     private static final String GRAMMAR_CORRECT = "grammar_correct";
+    private static final String REVIEW_LOG = "review_log";
 
     private final SharedPreferences preferences;
     private final ContentRepository content;
@@ -72,6 +73,25 @@ public final class MobileStore {
 
     public int dueCount() {
         return dueCards().size();
+    }
+
+    public List<ReviewRecord> historyFor(String front) {
+        List<ReviewRecord> result = new ArrayList<>();
+        try {
+            JSONArray array = new JSONArray(preferences.getString(REVIEW_LOG, "[]"));
+            for (int i = array.length() - 1; i >= 0; i--) {
+                JSONObject object = array.getJSONObject(i);
+                if (!front.equalsIgnoreCase(object.optString("front", ""))) continue;
+                result.add(new ReviewRecord(
+                        object.optLong("timestamp", 0L),
+                        object.optInt("quality", 0)
+                ));
+                if (result.size() >= 30) break;
+            }
+        } catch (Exception ignored) {
+            return Collections.emptyList();
+        }
+        return result;
     }
 
     public int learnedCount() {
@@ -160,6 +180,7 @@ public final class MobileStore {
                 .putInt(XP, xp() + (successful ? 10 : 2));
         updateStreak(editor, now);
         editor.apply();
+        appendReview(card.front, quality, now);
         saveCards();
         return true;
     }
@@ -185,6 +206,7 @@ public final class MobileStore {
                 .remove(REVIEWS_TODAY)
                 .remove(GRAMMAR_TOTAL)
                 .remove(GRAMMAR_CORRECT)
+                .remove(REVIEW_LOG)
                 .apply();
         cards.clear();
         seedStarterCards();
@@ -215,6 +237,27 @@ public final class MobileStore {
             return;
         }
         preferences.edit().putString(CARDS, array.toString()).apply();
+    }
+
+    private void appendReview(String front, int quality, long timestamp) {
+        try {
+            JSONArray array = new JSONArray(preferences.getString(REVIEW_LOG, "[]"));
+            JSONObject object = new JSONObject();
+            object.put("front", front);
+            object.put("quality", quality);
+            object.put("timestamp", timestamp);
+            array.put(object);
+
+            // Не разрастаемся бесконечно: для анализа достаточно 200 записей.
+            JSONArray trimmed = new JSONArray();
+            int start = Math.max(0, array.length() - 200);
+            for (int i = start; i < array.length(); i++) {
+                trimmed.put(array.get(i));
+            }
+            preferences.edit().putString(REVIEW_LOG, trimmed.toString()).apply();
+        } catch (Exception ignored) {
+            // Журнал не должен блокировать повторение карточки.
+        }
     }
 
     private void seedStarterCards() {

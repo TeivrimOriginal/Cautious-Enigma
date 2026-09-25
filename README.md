@@ -60,7 +60,7 @@ cargo run
 
 В папке `mobile/` находится нативная офлайн-версия для Android: Java, Android
 Studio и Gradle, без внешних библиотек. Она использует общие файлы из `data/`,
-SM-2 и локальное хранилище `SharedPreferences`.
+SM-2, локальное хранилище `SharedPreferences` и историю повторений карточек.
 
 Открой именно папку `mobile` в Android Studio или собери APK:
 

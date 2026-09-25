@@ -24,6 +24,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
@@ -39,6 +41,7 @@ public final class MainActivity extends Activity {
     private String screen = "home";
     private String selectedTab = "home";
     private CardState reviewingCard;
+    private CardState lastReviewedCard;
     private boolean answerVisible;
     private EditText dictionarySearch;
     private LinearLayout dictionaryResults;
@@ -332,6 +335,22 @@ public final class MainActivity extends Activity {
         tools.addView(secondaryButton("Все слова", v -> navigate("dictionary")), weightedButton());
         page.addView(space(16));
         page.addView(tools);
+        if (reviewingCard != null) {
+            Button history = secondaryButton("История повторений", v -> showHistory(reviewingCard));
+            LinearLayout.LayoutParams historyParams = new LinearLayout.LayoutParams(-1, dp(48));
+            historyParams.topMargin = dp(8);
+            page.addView(history, historyParams);
+        }
+        if (lastReviewedCard != null
+                && (reviewingCard == null || !lastReviewedCard.front.equals(reviewingCard.front))) {
+            Button lastHistory = secondaryButton(
+                    "История: " + lastReviewedCard.front,
+                    v -> showHistory(lastReviewedCard)
+            );
+            LinearLayout.LayoutParams historyParams = new LinearLayout.LayoutParams(-1, dp(48));
+            historyParams.topMargin = dp(8);
+            page.addView(lastHistory, historyParams);
+        }
         content.addView(page);
     }
 
@@ -394,6 +413,35 @@ public final class MainActivity extends Activity {
             p.bottomMargin = dp(8);
             dictionaryResults.addView(item, p);
         }
+    }
+
+    private void showHistory(CardState card) {
+        LinearLayout box = column();
+        box.setPadding(dp(18), dp(4), dp(18), dp(4));
+        List<ReviewRecord> records = store.historyFor(card.front);
+        if (records.isEmpty()) {
+            box.addView(label("История пока пуста", 16, mutedColor));
+        } else {
+            SimpleDateFormat format = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.US);
+            for (ReviewRecord record : records) {
+                LinearLayout item = column();
+                item.setPadding(0, dp(4), 0, dp(10));
+                item.addView(label(format.format(new Date(record.timestamp)), 14, textColor, true));
+                item.addView(label(
+                        record.successful() ? "Успешно · +10 XP" : "Ошибка · +2 XP",
+                        14,
+                        record.successful() ? good : bad
+                ));
+                box.addView(item);
+            }
+        }
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box, new ViewGroup.LayoutParams(-1, -2));
+        new AlertDialog.Builder(this)
+                .setTitle("История: " + card.front)
+                .setView(scroll)
+                .setPositiveButton("Закрыть", null)
+                .show();
     }
 
     private void showDictionaryEntry(DictionaryEntry entry) {
@@ -661,6 +709,7 @@ public final class MainActivity extends Activity {
                 .setPositiveButton("Сбросить", (dialog, which) -> {
                     store.resetProgress();
                     reviewingCard = null;
+                    lastReviewedCard = null;
                     answerVisible = false;
                     toast("Прогресс сброшен");
                     render();
@@ -671,6 +720,7 @@ public final class MainActivity extends Activity {
     private Button qualityButton(String title, int quality, int color) {
         return button(title, v -> {
             if (reviewingCard == null) return;
+            lastReviewedCard = reviewingCard;
             store.review(reviewingCard, quality);
             reviewingCard = null;
             answerVisible = false;
