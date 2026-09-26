@@ -33,6 +33,7 @@ public final class MobileStore {
     private static final String ENGLISH = "english";
     private static final String EXAM_TOTAL = "exam_total";
     private static final String EXAM_CORRECT = "exam_correct";
+    private static final String GOAL = "daily_goal";
 
     private final SharedPreferences preferences;
     private final ContentRepository content;
@@ -66,6 +67,14 @@ public final class MobileStore {
 
     public void setEnglish(boolean enabled) {
         preferences.edit().putBoolean(ENGLISH, enabled).apply();
+    }
+
+    public int goal() {
+        return preferences.getInt(GOAL, 20);
+    }
+
+    public void setGoal(int value) {
+        preferences.edit().putInt(GOAL, Math.max(5, Math.min(100, value))).apply();
     }
 
     public List<CardState> cards() {
@@ -103,6 +112,17 @@ public final class MobileStore {
             return Collections.emptyList();
         }
         return result;
+    }
+
+    public boolean deleteCard(String front) {
+        for (int i = 0; i < cards.size(); i++) {
+            if (cards.get(i).front.equalsIgnoreCase(front)) {
+                cards.remove(i);
+                saveCards();
+                return true;
+            }
+        }
+        return false;
     }
 
     public int learnedCount() {
@@ -236,6 +256,7 @@ public final class MobileStore {
                 .remove(REVIEW_LOG)
                 .remove(EXAM_TOTAL)
                 .remove(EXAM_CORRECT)
+                .remove(GOAL)
                 .apply();
         cards.clear();
         seedStarterCards();

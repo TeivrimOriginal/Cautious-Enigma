@@ -51,6 +51,9 @@ public final class MainActivity extends Activity {
     private boolean answerVisible;
     private EditText dictionarySearch;
     private LinearLayout dictionaryResults;
+    private String cardFilter = "all";
+    private EditText cardSearch;
+    private LinearLayout cardResults;
     private int grammarIndex;
     private boolean grammarAnswered;
     private int grammarChoice = -1;
@@ -157,7 +160,7 @@ public final class MainActivity extends Activity {
     }
 
     private void navigate(String key) {
-        selectedTab = key;
+        selectedTab = "library".equals(key) ? "cards" : key;
         if ("grammar".equals(key) || "reading".equals(key) || "stats".equals(key)
                 || "settings".equals(key)) {
             screen = key;
@@ -190,6 +193,9 @@ public final class MainActivity extends Activity {
                 break;
             case "dictionary":
                 renderDictionary();
+                break;
+            case "library":
+                renderCardLibrary();
                 break;
             case "more":
                 renderMore();
@@ -258,7 +264,7 @@ public final class MainActivity extends Activity {
         LinearLayout goal = column();
         goal.setGravity(Gravity.END);
         goal.addView(label("Цель дня", 13, mutedColor));
-        goal.addView(label(store.reviewsToday() + " / 20", 22, textColor, true));
+        goal.addView(label(store.reviewsToday() + " / " + store.goal(), 22, textColor, true));
         levelRow.addView(goal, new LinearLayout.LayoutParams(dp(120), dp(70)));
         levelPanel.addView(levelRow);
         levelPanel.addView(progress(level.percent, accent));
@@ -363,7 +369,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout tools = row();
         tools.addView(secondaryButton("Добавить слово", v -> showAddCardDialog()), weightedButton());
-        tools.addView(secondaryButton("Все слова", v -> navigate("dictionary")), weightedButton());
+        tools.addView(secondaryButton("Все слова", v -> navigate("library")), weightedButton());
         page.addView(space(16));
         page.addView(tools);
         if (reviewingCard != null) {
@@ -387,6 +393,136 @@ public final class MainActivity extends Activity {
             page.addView(lastHistory, historyParams);
         }
         content.addView(page);
+    }
+
+    private void renderCardLibrary() {
+        topTitle.setText(t("Все карточки"));
+        LinearLayout page = page();
+        page.addView(label(store.cards().size() + " карточек в колоде", 16, mutedColor));
+        page.addView(space(12));
+
+        cardSearch = new EditText(this);
+        cardSearch.setSingleLine(true);
+        cardSearch.setHint(t("Поиск по карточкам"));
+        cardSearch.setTextColor(textColor);
+        cardSearch.setHintTextColor(mutedColor);
+        cardSearch.setBackground(round(surface, 12));
+        cardSearch.setPadding(dp(14), 0, dp(14), 0);
+        page.addView(cardSearch, new LinearLayout.LayoutParams(-1, dp(52)));
+        cardSearch.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                renderCardResults(s.toString());
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
+
+        LinearLayout filters = row();
+        addFilterButton(filters, "Все", "all");
+        addFilterButton(filters, "К повторению", "due");
+        addFilterButton(filters, "Новые", "new");
+        addFilterButton(filters, "В работе", "progress");
+        page.addView(space(10));
+        page.addView(filters);
+        cardResults = new LinearLayout(this);
+        cardResults.setOrientation(LinearLayout.VERTICAL);
+        page.addView(space(12));
+        page.addView(cardResults);
+        content.addView(page);
+        renderCardResults("");
+    }
+
+    private void addFilterButton(LinearLayout parent, String title, String filter) {
+        Button button = secondaryButton(title, v -> {
+            cardFilter = filter;
+            render();
+        });
+        if (cardFilter.equals(filter)) {
+            button.setBackground(round(accent, 12));
+            button.setTextColor(Color.WHITE);
+        }
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(42), 1);
+        params.rightMargin = dp(4);
+        parent.addView(button, params);
+    }
+
+    private void renderCardResults(String query) {
+        if (cardResults == null) return;
+        cardResults.removeAllViews();
+        String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        long now = System.currentTimeMillis();
+        int shown = 0;
+        for (CardState card : store.cards()) {
+            boolean matches = needle.isEmpty()
+                    || card.front.toLowerCase(Locale.ROOT).contains(needle)
+                    || card.back.toLowerCase(Locale.ROOT).contains(needle);
+            boolean filter = "all".equals(cardFilter)
+                    || ("due".equals(cardFilter) && card.isDue(now))
+                    || ("new".equals(cardFilter) && card.repetitions == 0)
+                    || ("progress".equals(cardFilter) && card.repetitions > 0);
+            if (!matches || !filter) continue;
+            if (shown++ >= 100) break;
+
+            LinearLayout item = panel();
+            item.setOnClickListener(v -> showCardDetails(card));
+            item.addView(label(card.front, 17, textColor, true));
+            item.addView(label(card.back, 14, mutedColor));
+            String status = card.repetitions == 0
+                    ? "Новое"
+                    : (card.isDue(now) ? "К повторению" : "В работе");
+            item.addView(label(status + " · " + card.repetitions + " повторений", 12, accent));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(92));
+            params.bottomMargin = dp(8);
+            cardResults.addView(item, params);
+        }
+        if (shown == 0) cardResults.addView(label("Карточки не найдены", 16, mutedColor));
+    }
+
+    private void showCardDetails(CardState card) {
+        LinearLayout box = column();
+        box.setPadding(dp(20), dp(4), dp(20), dp(4));
+        box.addView(label(card.front, 24, textColor, true));
+        box.addView(label(card.back, 17, mutedColor));
+        if (!card.example.isEmpty()) {
+            box.addView(space(8));
+            box.addView(label(card.example, 14, mutedColor));
+        }
+        box.addView(space(10));
+        box.addView(label("Повторения: " + card.repetitions
+                + " · освоение: " + card.masteryPercent() + "%", 14, accent));
+        new AlertDialog.Builder(this)
+                .setTitle(t("Карточка"))
+                .setView(box)
+                .setNegativeButton(t("Удалить"), (dialog, which) -> confirmDelete(card))
+                .setNeutralButton(t("История"), (dialog, which) -> showHistory(card))
+                .setPositiveButton(t("Повторить"), (dialog, which) -> {
+                    reviewingCard = card;
+                    answerVisible = false;
+                    selectedTab = "cards";
+                    screen = "cards";
+                    render();
+                })
+                .show();
+    }
+
+    private void confirmDelete(CardState card) {
+        new AlertDialog.Builder(this)
+                .setTitle(t("Удалить карточку?"))
+                .setMessage(t("История повторений останется в статистике."))
+                .setNegativeButton(t("Отмена"), null)
+                .setPositiveButton(t("Удалить"), (dialog, which) -> {
+                    store.deleteCard(card.front);
+                    toast("Карточка удалена");
+                    render();
+                })
+                .show();
     }
 
     private void renderDictionary() {
@@ -940,6 +1076,27 @@ public final class MainActivity extends Activity {
         page.addView(languagePanel);
         page.addView(space(12));
 
+        LinearLayout goalPanel = panel();
+        goalPanel.addView(label("Дневная цель", 14, mutedColor));
+        goalPanel.addView(space(5));
+        goalPanel.addView(label(store.goal() + " повторений в день", 20, textColor, true));
+        goalPanel.addView(space(10));
+        LinearLayout goalRow = row();
+        for (int value : new int[]{10, 20, 50}) {
+            Button goalButton = secondaryButton(String.valueOf(value), v -> {
+                store.setGoal(value);
+                render();
+            });
+            if (store.goal() == value) {
+                goalButton.setBackground(round(accent, 12));
+                goalButton.setTextColor(Color.WHITE);
+            }
+            goalRow.addView(goalButton, weightedButton());
+        }
+        goalPanel.addView(goalRow);
+        page.addView(goalPanel);
+        page.addView(space(12));
+
         LinearLayout about = panel();
         about.addView(label("О приложении", 17, textColor, true));
         about.addView(space(6));
@@ -1115,6 +1272,7 @@ public final class MainActivity extends Activity {
             case "На сегодня всё повторено. Можно добавить новое слово.":
                 return "All caught up for today. Add a new word.";
             case "Цель дня": return "Daily goal";
+            case "Дневная цель": return "Daily goal";
             case "Повторять": return "Review";
             case "Открыть карточки": return "Open cards";
             case "дней подряд": return "day streak";
@@ -1133,6 +1291,20 @@ public final class MainActivity extends Activity {
             case "Новое слово": return "New word";
             case "Добавить слово": return "Add word";
             case "Все слова": return "All words";
+            case "Все карточки": return "All cards";
+            case "Поиск по карточкам": return "Search cards";
+            case "Все": return "All";
+            case "К повторению": return "Due";
+            case "Новые": return "New";
+            case "В работе": return "In progress";
+            case "Карточки не найдены": return "No cards found";
+            case "Карточка": return "Card";
+            case "Удалить карточку?": return "Delete card?";
+            case "История повторений останется в статистике.":
+                return "Review history will remain in statistics.";
+            case "Удалить": return "Delete";
+            case "Повторить": return "Review";
+            case "Карточка удалена": return "Card deleted";
             case "История повторений": return "Review history";
             case "Сравнение карточек": return "Card comparison";
             case "Выбери первую карточку": return "Choose the first card";
@@ -1210,8 +1382,15 @@ public final class MainActivity extends Activity {
             default:
                 break;
         }
+        if (result.contains(" повторений в день")) {
+            result = result.replace(" повторений в день", " reviews per day");
+        }
+        if (result.contains("карточек в колоде")) {
+            result = result.replace(" карточек в колоде", " cards in the deck");
+        }
         if (result.startsWith("Повторения: ")) {
-            result = "Reviews: " + result.substring(13);
+            result = ("Reviews: " + result.substring(13))
+                    .replace(" · освоение: ", " · mastery: ");
         } else if (result.startsWith("Интервал: ")) {
             result = "Interval: " + result.substring(10);
         }
@@ -1228,6 +1407,17 @@ public final class MainActivity extends Activity {
         }
         if (result.contains(" · точность ")) {
             result = result.replace(" · точность ", " · accuracy ");
+        }
+        if (result.startsWith("Новое · ")) {
+            result = "New · " + result.substring(7);
+        } else if (result.startsWith("К повторению · ")) {
+            result = "Due · " + result.substring(15);
+        } else if (result.startsWith("В работе · ")) {
+            result = "In progress · " + result.substring(10);
+        }
+        if (result.startsWith("New · ") || result.startsWith("Due · ")
+                || result.startsWith("In progress · ")) {
+            result = result.replace("повторений", "reviews");
         }
         if (result.endsWith(" дн.")) {
             result = result.substring(0, result.length() - 4) + " days";
