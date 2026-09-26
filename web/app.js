@@ -140,6 +140,46 @@
     } catch (err) {
       console.warn("не удалось сохранить прогресс", err);
     }
+    scheduleDesktopBackup();
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Мост десктоп-оболочки
+   *
+   * В десктопной сборке объект `window.linguarustDesktop` появляется до
+   * загрузки страницы: он хранит резервные копии прогресса на диске,
+   * открывает каталог данных и управляет автозапуском. В браузере моста
+   * нет, и приложение остаётся обычной статической версией.
+   * ------------------------------------------------------------------ */
+
+  const desktop = window.linguarustDesktop || null;
+
+  let desktopDetails = null;
+  let backupTimer = 0;
+
+  /** Сведения о сборке: версия, каталог данных, состояние автозапуска. */
+  async function loadDesktop() {
+    if (!desktop) return null;
+    try {
+      desktopDetails = desktop.info || (await desktop.init());
+    } catch (err) {
+      console.warn("мост десктопа недоступен", err);
+      desktopDetails = null;
+    }
+    return desktopDetails;
+  }
+
+  /** Отправляет копию прогресса на диск, но не чаще раза в полторы секунды. */
+  function scheduleDesktopBackup() {
+    if (!desktop || backupTimer) return;
+    backupTimer = window.setTimeout(async () => {
+      backupTimer = 0;
+      try {
+        await desktop.backup(JSON.stringify(state));
+      } catch (err) {
+        console.warn("резервная копия не сохранена", err);
+      }
+    }, 1500);
   }
 
   /* ------------------------------------------------------------------ *
@@ -1607,9 +1647,29 @@
     return { view: "home", param: null };
   }
 
+  /** Нативные кнопки десктопной оболочки в шапке. */
+  function desktopControls(advanced) {
+    if (!desktop) return "";
+    const title = desktopDetails
+      ? `Десктоп ${desktopDetails.version || ""}: ${desktopDetails.dataDir || ""}`
+      : "Резервные копии хранятся на диске";
+    return `<span class="badge" title="${escapeHtml(title)}">🖥 десктоп</span>
+      ${
+        advanced
+          ? `<button class="btn ghost small" data-desktop="export" title="Сохранить копию прогресса в файл">💾</button>
+             <button class="btn ghost small" data-desktop="restore" title="Восстановить прогресс из копии на диске">♻️</button>
+             <button class="btn ghost small" data-desktop="autostart" title="Запускать вместе с Windows">${
+               desktopDetails?.autostart ? "🚀" : "🚫"
+             }</button>`
+          : ""
+      }
+      <button class="btn ghost small" data-desktop="folder" title="Открыть папку с данными">📂</button>
+      <button class="btn ghost small" data-desktop="palette" title="Командная палитра (Ctrl+K)">⌘</button>`;
+  }
+
   function renderProfileBox() {
     if (!state.profile) {
-      profileBox.innerHTML = '<a class="btn small" href="#/">Начать</a>';
+      profileBox.innerHTML = `<a class="btn small" href="#/">Начать</a>${desktopControls(false)}`;
       return;
     }
     const s = stats();
@@ -1628,6 +1688,7 @@
       <button class="btn ghost small" id="import" title="Загрузить резервную копию">Импорт</button>
       <button class="btn ghost small" id="reset">Сбросить</button>
       <input type="file" id="import-file" accept="application/json" hidden />
+      ${desktopControls(true)}
       ${
         currentReminder.enabled
           ? `<select class="btn ghost small" id="reminder-time" title="Время напоминания">
@@ -1644,9 +1705,14 @@
       setReminderTime(event.target.value),
     );
     document.getElementById("export").addEventListener("click", exportProgress);
-    document.getElementById("import").addEventListener("click", () =>
-      document.getElementById("import-file").click(),
-    );
+    document.getElementById("import").addEventListener("click", () => {
+      // В десктопной сборке копия лежит на диске, диалог выбора файла не нужен.
+      if (desktop) {
+        runDesktopAction("restore");
+        return;
+      }
+      document.getElementById("import-file").click();
+    });
     document.getElementById("import-file").addEventListener("change", importProgress);
     document.getElementById("reset").addEventListener("click", () => {
       if (confirm("Удалить все карточки и статистику этого браузера?")) {
@@ -1657,8 +1723,80 @@
     });
   }
 
+  /** Нативные действия десктопной оболочки. */
+  async function runDesktopAction(action) {
+    if (!desktop) return;
+
+    try {
+      if (action === "export") {
+        const result = await desktop.export(
+          JSON.stringify({ ...state, exportedAt: new Date().toISOString() }, null, 2),
+        );
+        toast("💾 Файл сохранён", result.path);
+      } else if (action === "restore") {
+        const backup = await desktop.restore();
+        if (!backup?.payload) {
+          toast("ℹ️ Копий пока нет", "Резервная копия появится после первого изменения");
+          return;
+        }
+        const parsed = JSON.parse(backup.payload);
+        if (!Array.isArray(parsed.cards)) throw new Error("в копии нет списка карточек");
+        const count = parsed.cards.length;
+        const question = `Заменить текущий прогресс (${state.cards.length} карточек) копией от ${backup.savedAt} (${count})?`;
+        if (!confirm(question)) return;
+        applyImported(parsed);
+        toast("♻️ Прогресс восстановлен", `Копия от ${backup.savedAt}`, "good");
+      } else if (action === "autostart") {
+        const result = await desktop.autostart(!desktopDetails?.autostart);
+        desktopDetails = { ...(desktopDetails || {}), autostart: result.autostart };
+        toast(
+          result.autostart ? "🚀 Автозапуск включён" : "✅ Автозапуск выключен",
+          "При старте Windows окно откроется свёрнутым",
+        );
+        renderProfileBox();
+      } else if (action === "folder") {
+        const result = await desktop.openDataDir();
+        toast("📂 Открыта папка данных", result.path);
+      } else if (action === "palette") {
+        openPalette();
+      }
+    } catch (err) {
+      toast("⚠️ Не получилось", err.message, "bad");
+    }
+  }
+
+  /** Если в окне пусто, а на диске есть копия — поднимаем её молча. */
+  async function restoreDesktopBackup() {
+    if (!desktop || state.profile || state.cards.length || state.reviews.length) return false;
+
+    try {
+      const backup = await desktop.restore();
+      const parsed = backup?.payload ? JSON.parse(backup.payload) : null;
+      if (!parsed || !Array.isArray(parsed.cards) || !parsed.cards.length) return false;
+      state = { ...emptyState(), ...parsed };
+      saveState();
+      toast("♻️ Прогресс восстановлен", `Копия от ${backup.savedAt}: ${parsed.cards.length} карточек`, "good");
+      return true;
+    } catch (err) {
+      console.warn("резервная копия не восстановлена", err);
+      return false;
+    }
+  }
+
+  /** Применяет загруженное состояние и перерисовывает текущий экран. */
+  function applyImported(parsed) {
+    state = { ...emptyState(), ...parsed };
+    saveState();
+    route();
+  }
+
   /** Скачивает резервную копию прогресса в JSON. */
   function exportProgress() {
+    // В десктопной сборке файл пишется на диск, а не в папку «Загрузки».
+    if (desktop) {
+      runDesktopAction("export");
+      return;
+    }
     const payload = JSON.stringify({ ...state, exportedAt: new Date().toISOString() }, null, 2);
     const blob = new Blob([payload], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1683,9 +1821,7 @@
         event.target.value = "";
         return;
       }
-      state = { ...emptyState(), ...parsed };
-      saveState();
-      route();
+      applyImported(parsed);
     } catch (err) {
       alert(`Не удалось загрузить файл: ${err.message}`);
     } finally {
@@ -1844,6 +1980,12 @@
         removeCard(card.id);
         route();
       }
+      return;
+    }
+
+    const desktopButton = event.target.closest("[data-desktop]");
+    if (desktopButton) {
+      runDesktopAction(desktopButton.dataset.desktop);
       return;
     }
 
@@ -2069,6 +2211,8 @@
     } catch (err) {
       /* приватный режим — просто не сохраняем */
     }
+    // Десктопная оболочка повторяет тему в заголовке окна.
+    desktop?.theme(next);
     renderProfileBox();
   }
 
@@ -2144,11 +2288,166 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * Командная палитра (Ctrl+K)
+   * ------------------------------------------------------------------ */
+
+  let paletteItems = [];
+  let paletteVisible = [];
+  let paletteIndex = 0;
+
+  /** Список команд: навигация по разделам и нативные действия десктопа. */
+  function paletteCommands() {
+    const commands = [
+      { title: "Начать повторение", hint: "карточки, которые пора повторить", go: "#/" },
+      { title: "Библиотека карточек", hint: "поиск, фильтры, удаление", go: "#/cards" },
+      { title: "Словарь", hint: `${data.entries.length} слов с переводом и примером`, go: "#/dictionary" },
+      { title: "Чтение", hint: "тексты с переводом по клику", go: "#/reading" },
+      { title: "Грамматика", hint: `${data.exercises.length} упражнений с разбором`, go: "#/grammar" },
+      { title: "Экзамен", hint: `${EXAM_LENGTH} вопросов за ${EXAM_SECONDS} секунд`, go: "#/exam" },
+      { title: "Тренажёр письма", hint: "набор слова по памяти", go: "#/typing" },
+      { title: "Статистика", hint: "график, достижения, прогноз", go: "#/stats" },
+      { title: "Сменить тему", hint: currentTheme() === "dark" ? "светлая" : "тёмная", run: toggleTheme },
+    ];
+
+    if (desktop) {
+      const dir = desktopDetails?.dataDir || "";
+      commands.push(
+        { title: "Сохранить копию прогресса", hint: dir ? `файл в ${dir}` : "файл в папку данных", run: () => runDesktopAction("export") },
+        { title: "Восстановить из копии", hint: "последняя копия на диске", run: () => runDesktopAction("restore") },
+        { title: "Открыть папку данных", hint: dir, run: () => runDesktopAction("folder") },
+        {
+          title: desktopDetails?.autostart ? "Выключить автозапуск" : "Включить автозапуск",
+          hint: "запуск вместе с Windows",
+          run: () => runDesktopAction("autostart"),
+        },
+      );
+    }
+
+    return commands;
+  }
+
+  /** Создаёт оверлей палитры один раз и навешивает обработчики. */
+  function buildPalette() {
+    const host = document.createElement("div");
+    host.className = "palette";
+    host.id = "palette";
+    host.hidden = true;
+    host.innerHTML = `
+      <div class="palette-panel" role="dialog" aria-label="Командная палитра">
+        <input class="palette-input" type="text" placeholder="Команда…" aria-label="Команда" autocomplete="off" />
+        <ul class="palette-list"></ul>
+        <div class="palette-hint">↑ ↓ — выбор · Enter — выполнить · Esc — закрыть</div>
+      </div>`;
+    document.body.appendChild(host);
+
+    const input = host.querySelector(".palette-input");
+    input.addEventListener("input", () => {
+      paletteIndex = 0;
+      renderPalette(input.value);
+    });
+    host.querySelector(".palette-list").addEventListener("click", (event) => {
+      const item = event.target.closest(".palette-item");
+      if (!item || item.classList.contains("muted")) return;
+      const command = paletteVisible[Number(item.dataset.index)];
+      closePalette();
+      command?.run();
+    });
+    host.addEventListener("click", (event) => {
+      if (event.target === host) closePalette();
+    });
+    return host;
+  }
+
+  /** Показывает палитру со всеми командами. */
+  function openPalette() {
+    const host = document.getElementById("palette") || buildPalette();
+    const input = host.querySelector(".palette-input");
+    paletteItems = paletteCommands();
+    paletteIndex = 0;
+    input.value = "";
+    renderPalette("");
+    host.hidden = false;
+    input.focus();
+  }
+
+  /** Прячет палитру и возвращает фокус в приложение. */
+  function closePalette() {
+    const host = document.getElementById("palette");
+    if (!host) return;
+    host.hidden = true;
+    paletteItems = [];
+    paletteVisible = [];
+    app.focus?.();
+  }
+
+  /** Фильтрует команды по запросу и рисует список. */
+  function renderPalette(query) {
+    const needle = query.trim().toLowerCase();
+    paletteVisible = paletteItems.filter((item) =>
+      !needle || `${item.title} ${item.hint}`.toLowerCase().includes(needle),
+    );
+    paletteIndex = Math.max(0, Math.min(paletteIndex, paletteVisible.length - 1));
+
+    const list = document.querySelector("#palette .palette-list");
+    if (!list) return;
+    list.innerHTML = paletteVisible.length
+      ? paletteVisible
+          .map(
+            (item, index) => `<li class="palette-item${index === paletteIndex ? " active" : ""}" data-index="${index}">
+              <span>${escapeHtml(item.title)}</span><small>${escapeHtml(item.hint)}</small>
+            </li>`,
+          )
+          .join("")
+      : `<li class="palette-item muted">Ничего не найдено</li>`;
+  }
+
+  /** Выполняет выбранную команду. */
+  function runPaletteSelection() {
+    const command = paletteVisible[paletteIndex];
+    closePalette();
+    if (!command) return;
+    if (command.go) location.hash = command.go;
+    else command.run?.();
+  }
+
+  function initPalette() {
+    document.addEventListener("keydown", (event) => {
+      const host = document.getElementById("palette");
+      const open = host && !host.hidden;
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        open ? closePalette() : openPalette();
+        return;
+      }
+      if (!open) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePalette();
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        const count = paletteVisible.length || 1;
+        paletteIndex = (paletteIndex + step + count) % count;
+        renderPalette(host.querySelector(".palette-input").value);
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        runPaletteSelection();
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
    * Запуск
    * ------------------------------------------------------------------ */
 
   async function start() {
     loadState();
+    // Десктопная оболочка: узнаём версию, каталог данных и автозапуск.
+    await loadDesktop();
+    // Пустое окно с копией на диске — восстанавливаем прогресс молча.
+    await restoreDesktopBackup();
     // Защита стрика применяется сразу: если вчера пропущен день, а позавчера
     // была активность, тратим одну заморозку.
     const healed = applyFreezeIfNeeded();
@@ -2164,8 +2463,12 @@
 
     window.addEventListener("hashchange", route);
     initShortcuts();
+    initPalette();
     scheduleReminder();
     route();
+    renderFooter();
+    // Заголовок окна повторяет тему страницы, а не сохранение оболочки.
+    desktop?.theme(currentTheme());
 
     // Офлайн-режим: работает только на https и localhost.
     if ("serviceWorker" in navigator) {
@@ -2173,6 +2476,17 @@
         console.warn("service worker не зарегистрирован", err);
       });
     }
+  }
+
+  /** Подпись в подвале: браузерная или десктопная сборка. */
+  function renderFooter() {
+    const mode = document.getElementById("footer-mode");
+    if (!mode) return;
+    mode.textContent = desktop
+      ? `LinguaRust · десктоп ${desktopDetails?.version || ""} · прогресс и копии в ${
+          desktopDetails?.dataDir || "папке данных"
+        }`
+      : "LinguaRust · Axum + SQLx + Askama · статическая версия работает без сервера, прогресс хранится в вашем браузере";
   }
 
   start();

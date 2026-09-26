@@ -805,6 +805,95 @@ footer {
   padding: 24px 0 0;
 }
 
+/* ---------- Командная палитра ---------- */
+
+.palette {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 16px 16px;
+  background: rgba(12, 15, 24, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.palette[hidden] {
+  display: none;
+}
+
+.palette-panel {
+  width: min(560px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 48px rgba(10, 14, 26, 0.35);
+  overflow: hidden;
+}
+
+.palette-input {
+  width: 100%;
+  padding: 14px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: 16px/1.4 inherit;
+  outline: none;
+}
+
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  max-height: 52vh;
+  overflow: auto;
+}
+
+.palette-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.palette-item small {
+  color: var(--muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-item.active {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.palette-item.muted {
+  color: var(--muted);
+  cursor: default;
+}
+
+.palette-hint {
+  padding: 9px 18px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface-alt);
+  font: 12px/1.6 ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
 @media (max-width: 640px) {
   .topbar-inner {
     gap: 12px;
