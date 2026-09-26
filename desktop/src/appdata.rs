@@ -20,6 +20,10 @@ pub struct Settings {
     pub theme: String,
     /// Предыдущее состояние автозапуска (для информации в интерфейсе).
     pub autostart: bool,
+    /// Закрывать окно в трей вместо выхода из приложения.
+    pub close_to_tray: bool,
+    /// Сколько карточек ждёт повторения — для подписи в трее.
+    pub due: usize,
 }
 
 /// Геометрия окна между запусками.
@@ -126,6 +130,11 @@ impl AppData {
             .join(format!("linguarust-{}.json", util::now_stamp()));
         write_atomic(&path, payload)?;
         Ok(path)
+    }
+
+    /// Записывает копию по пути, выбранному пользователем в диалоге.
+    pub fn write_copy(&self, path: &Path, payload: &str) -> io::Result<()> {
+        write_atomic(path, payload)
     }
 
     /// Открывает каталог данных в Проводнике.

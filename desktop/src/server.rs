@@ -23,6 +23,7 @@ use tao::event_loop::EventLoopProxy;
 use crate::AppEvent;
 use crate::appdata::AppData;
 use crate::autostart;
+use crate::dialog::{DIALOG_TIMEOUT, DialogSlot};
 
 /// Предел для заголовков запроса.
 const MAX_HEADER: usize = 16 * 1024;
@@ -93,6 +94,7 @@ fn handle_bridge(bridge: &Bridge, method: &str, action: &str, body: &str) -> (u1
     match (method, action) {
         ("GET", "info") => {
             let data_dir = bridge.data.dir().display().to_string();
+            let stored = bridge.data.load_settings();
             (
                 200,
                 json!({
@@ -102,6 +104,7 @@ fn handle_bridge(bridge: &Bridge, method: &str, action: &str, body: &str) -> (u1
                     "platform": std::env::consts::OS,
                     "dataDir": data_dir,
                     "autostart": autostart::is_enabled(),
+                    "closeToTray": stored.close_to_tray,
                     "hotkeys": crate::hotkeys::described(),
                 })
                 .to_string(),
@@ -162,6 +165,71 @@ fn handle_bridge(bridge: &Bridge, method: &str, action: &str, body: &str) -> (u1
                     json!({ "ok": false, "error": err.to_string() }).to_string(),
                 ),
             }
+        }
+        // Нативный диалог сохранения: окно показывает выбор файла, а сервер
+        // ждёт выбранный путь.
+        ("POST", "export-dialog") => {
+            let Some(payload) = payload_of(body) else {
+                return (
+                    400,
+                    json!({ "ok": false, "error": "нет поля payload" }).to_string(),
+                );
+            };
+            let slot = DialogSlot::new();
+            let _ = bridge
+                .events
+                .send_event(AppEvent::SaveCopyAs(slot.clone(), payload));
+            match slot.wait(DIALOG_TIMEOUT) {
+                Some(Some(path)) => (
+                    200,
+                    json!({ "ok": true, "path": path.display().to_string() }).to_string(),
+                ),
+                Some(None) => (200, json!({ "ok": false, "cancelled": true }).to_string()),
+                None => (
+                    500,
+                    json!({ "ok": false, "error": "диалог не ответил" }).to_string(),
+                ),
+            }
+        }
+        // Нативный диалог открытия: содержимое файла уходит прямо в страницу.
+        ("GET", "import-dialog") => {
+            let slot = DialogSlot::new();
+            let _ = bridge.events.send_event(AppEvent::OpenCopy(slot.clone()));
+            match slot.wait(DIALOG_TIMEOUT) {
+                Some(Some(path)) => match fs::read_to_string(&path) {
+                    Ok(content) => {
+                        let name = path
+                            .file_name()
+                            .map(|value| value.to_string_lossy().to_string())
+                            .unwrap_or_else(|| path.display().to_string());
+                        (
+                            200,
+                            json!({ "ok": true, "name": name, "content": content }).to_string(),
+                        )
+                    }
+                    Err(err) => (
+                        500,
+                        json!({ "ok": false, "error": err.to_string() }).to_string(),
+                    ),
+                },
+                Some(None) => (200, json!({ "ok": false, "cancelled": true }).to_string()),
+                None => (
+                    500,
+                    json!({ "ok": false, "error": "диалог не ответил" }).to_string(),
+                ),
+            }
+        }
+        // Подпись значка в трее: сколько карточек ждёт повторения.
+        ("POST", "status") => {
+            let request = request();
+            let due = request.get("due").and_then(Value::as_u64).unwrap_or(0) as usize;
+            let cards = request.get("cards").and_then(Value::as_u64).unwrap_or(0) as usize;
+            let _ = bridge.events.send_event(AppEvent::Status { due, cards });
+            (200, json!({ "ok": true }).to_string())
+        }
+        ("POST", "close-to-tray") => {
+            let _ = bridge.events.send_event(AppEvent::ToggleCloseToTray);
+            (200, json!({ "ok": true }).to_string())
         }
         ("POST", "autostart") => {
             let enabled = request()

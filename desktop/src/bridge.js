@@ -36,6 +36,18 @@
     /** Сохранить отдельный файл экспорта с датой в имени. */
     export: (payload) => call("export", { payload }),
 
+    /** Сохранить копию через нативный диалог выбора файла. */
+    exportAs: (payload) => call("export-dialog", { payload }),
+
+    /** Открыть копию через нативный диалог; вернёт имя и содержимое файла. */
+    importOpen: () => call("import-dialog"),
+
+    /** Передать оболочке состояние для подписи в трее. */
+    status: ({ due, cards }) => call("status", { due, cards }).catch(() => ({})),
+
+    /** Переключить режим «закрывать в трей». */
+    toggleCloseToTray: () => call("close-to-tray", {}),
+
     /** Прочитать последнюю резервную копию с диска. */
     restore: () => call("backup"),
 
@@ -70,4 +82,7 @@
     window.dispatchEvent(new CustomEvent("linguarust:file", { detail: file }));
   window.__linguarustDropError = (message) =>
     window.dispatchEvent(new CustomEvent("linguarust:file-error", { detail: message }));
+  // Окно спрятано в трей: предупреждаем пользователя, что приложение живо.
+  window.__linguarustHidden = () =>
+    window.dispatchEvent(new CustomEvent("linguarust:hidden", { detail: true }));
 })();

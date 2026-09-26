@@ -10,8 +10,11 @@
 mod appdata;
 mod autostart;
 mod cli;
+mod dialog;
 mod hotkeys;
+mod icon;
 mod server;
+mod tray;
 mod util;
 mod win32;
 
@@ -49,14 +52,26 @@ pub enum AppEvent {
     AutostartChanged(bool),
     /// Открыть окно и перейти к повторению.
     ShowReview,
+    /// Показать окно из трея или горячей клавиши.
+    ShowWindow,
     /// Сохранить резервную копию, не дожидаясь автосохранения.
     SaveBackup,
+    /// Сохранить копию по пути из нативного диалога.
+    SaveCopyAs(dialog::DialogSlot, String),
+    /// Открыть файл через нативный диалог.
+    OpenCopy(dialog::DialogSlot),
     /// Свернуть или восстановить окно.
     ToggleWindow,
+    /// Переключить режим «закрывать в трей».
+    ToggleCloseToTray,
+    /// Обновить подпись значка в трее.
+    Status { due: usize, cards: usize },
     /// Файл, перетащенный в окно.
     DroppedFile(String),
     /// Открыть диалог печати или сохранения в PDF.
     Print,
+    /// Завершить приложение.
+    Quit,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -119,6 +134,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Горячая клавиша {keys}: {action}");
     }
 
+    // Значок в трее: окно можно свернуть вместо закрытия, а в подписи значка
+    // видно, сколько карточек ждёт повторения.
+    let tray = tray::Tray::new(&proxy, settings.close_to_tray);
+    match &tray {
+        Ok(icon) => icon.set_status(settings.due, 0),
+        Err(err) => println!("трей недоступен: {err}"),
+    }
+
     // Перетаскивание файла и внешние ссылки обрабатываются нативно.
     let drop_proxy = proxy.clone();
     let webview = WebViewBuilder::new()
@@ -165,6 +188,44 @@ fn main() -> Result<(), Box<dyn Error>> {
             win32::restore(&window);
             let _ = webview.evaluate_script("location.hash = '#/'");
         }
+        if let Event::UserEvent(AppEvent::ShowWindow) = &event {
+            win32::restore(&window);
+        }
+        if let Event::UserEvent(AppEvent::SaveCopyAs(slot, payload)) = &event {
+            let suggested = format!("linguarust-{}.json", util::now_stamp());
+            let answer = dialog::save_copy(&suggested).and_then(|path| {
+                match data.write_copy(&path, payload) {
+                    Ok(()) => Some(path),
+                    Err(err) => {
+                        eprintln!("не удалось сохранить копию: {err}");
+                        None
+                    }
+                }
+            });
+            slot.answer(answer);
+        }
+        if let Event::UserEvent(AppEvent::OpenCopy(slot)) = &event {
+            slot.answer(dialog::open_copy());
+        }
+        if let Event::UserEvent(AppEvent::ToggleCloseToTray) = &event {
+            settings.close_to_tray = !settings.close_to_tray;
+            if let Ok(icon) = &tray {
+                icon.set_close_to_tray(settings.close_to_tray);
+            }
+            let _ = data.save_settings(&settings);
+        }
+        if let Event::UserEvent(AppEvent::Status { due, cards }) = &event {
+            settings.due = *due;
+            if let Ok(icon) = &tray {
+                icon.set_status(*due, *cards);
+            }
+            let _ = data.save_settings(&settings);
+        }
+        if let Event::UserEvent(AppEvent::Quit) = &event {
+            settings.window = capture_geometry(&window, settings.window);
+            let _ = data.save_settings(&settings);
+            *control_flow = ControlFlow::Exit;
+        }
         if let Event::UserEvent(AppEvent::ToggleWindow) = &event {
             if window.is_minimized() {
                 win32::restore(&window);
@@ -205,6 +266,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
             WindowEvent::CloseRequested => {
+                // В режиме трея закрытие окна не завершает приложение.
+                if settings.close_to_tray {
+                    win32::hide(&window);
+                    let _ = webview.evaluate_script(
+                        "window.__linguarustHidden && window.__linguarustHidden()",
+                    );
+                    return;
+                }
                 settings.window = capture_geometry(&window, settings.window);
                 let _ = data.save_settings(&settings);
                 *control_flow = ControlFlow::Exit;

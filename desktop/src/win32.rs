@@ -38,3 +38,18 @@ pub fn restore(window: &Window) {
     #[cfg(not(windows))]
     window.set_minimized(false);
 }
+
+/// Прячет окно без появления в панели задач — режим «трей».
+pub fn hide(window: &Window) {
+    #[cfg(windows)]
+    {
+        use tao::platform::windows::WindowExtWindows;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
+
+        unsafe {
+            ShowWindow(window.hwnd() as _, SW_HIDE);
+        }
+    }
+    #[cfg(not(windows))]
+    window.set_visible(false);
+}

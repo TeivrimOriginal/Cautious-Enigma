@@ -141,6 +141,7 @@
       console.warn("не удалось сохранить прогресс", err);
     }
     scheduleDesktopBackup();
+    scheduleStatusPush();
   }
 
   /* ------------------------------------------------------------------ *
@@ -156,6 +157,7 @@
 
   let desktopDetails = null;
   let backupTimer = 0;
+  let statusTimer = 0;
 
   /** Сведения о сборке: версия, каталог данных, состояние автозапуска. */
   async function loadDesktop() {
@@ -1664,6 +1666,9 @@
           : ""
       }
       <button class="btn ghost small" data-desktop="folder" title="Открыть папку с данными">📂</button>
+      <button class="btn ghost small" data-desktop="tray" title="Закрывать окно в трей вместо выхода">${
+        desktopDetails?.closeToTray ? "📥" : "📤"
+      }</button>
       <button class="btn ghost small" data-desktop="palette" title="Командная палитра (Ctrl+K)">⌘</button>`;
   }
 
@@ -1760,6 +1765,22 @@
       } else if (action === "print") {
         await desktop.print();
         toast("🖨 Диалог печати открыт", "В нём же сохраняем страницу в PDF");
+      } else if (action === "export-as") {
+        const result = await desktop.exportAs(
+          JSON.stringify({ ...state, exportedAt: new Date().toISOString() }, null, 2),
+        );
+        if (result?.ok) toast("💾 Файл сохранён", result.path);
+      } else if (action === "import-open") {
+        const result = await desktop.importOpen();
+        if (result?.ok) importDroppedFile(result.name, result.content);
+      } else if (action === "tray") {
+        await desktop.toggleCloseToTray();
+        desktopDetails = { ...(desktopDetails || {}), closeToTray: !desktopDetails?.closeToTray };
+        toast(
+          desktopDetails.closeToTray ? "📥 Закрытие уводит в трей" : "📤 Закрытие завершает приложение",
+          "Режим меняется и в меню значка",
+        );
+        renderProfileBox();
       } else if (action === "palette") {
         openPalette();
       }
@@ -1814,6 +1835,24 @@
       const savedAt = event.detail?.savedAt;
       toast("💾 Копия сохранена", savedAt ? `Ctrl+Alt+S · ${savedAt}` : "Ctrl+Alt+S");
     });
+    window.addEventListener("linguarust:hidden", () => {
+      toast("📥 Приложение свёрнуто в трей", "Ctrl+Alt+P вернёт окно, Ctrl+Alt+L начнёт повторение");
+    });
+  }
+
+  /**
+   * Отправляет оболочке состояние для подписи значка в трее.
+   *
+   * Значок должен показывать «5 к повторению», поэтому обновляем его после
+   * каждого изменения прогресса, но не чаще раза в две секунды.
+   */
+  function scheduleStatusPush() {
+    if (!desktop || statusTimer) return;
+    statusTimer = window.setTimeout(async () => {
+      statusTimer = 0;
+      const due = Math.min(dueCards().length, 999);
+      await desktop.status({ due, cards: state.cards.length }).catch(() => ({}));
+    }, 2000);
   }
 
   /** Если в окне пусто, а на диске есть копия — поднимаем её молча. */
@@ -2387,11 +2426,18 @@
           run: () => runDesktopAction("export"),
         },
         { title: "Восстановить из копии", hint: "последняя копия на диске", run: () => runDesktopAction("restore") },
+        { title: "Сохранить копию как…", hint: "выбор места в системном диалоге", run: () => runDesktopAction("export-as") },
+        { title: "Открыть копию…", hint: ".json или .csv из любой папки", run: () => runDesktopAction("import-open") },
         { title: "Открыть папку данных", hint: dir, run: () => runDesktopAction("folder") },
         {
           title: "Печать или PDF",
           hint: "системный диалог WebView2",
           run: () => runDesktopAction("print"),
+        },
+        {
+          title: desktopDetails?.closeToTray ? "Закрывать приложение" : "Закрывать окно в трей",
+          hint: "значок в области уведомлений",
+          run: () => runDesktopAction("tray"),
         },
         {
           title: desktopDetails?.autostart ? "Выключить автозапуск" : "Включить автозапуск",
