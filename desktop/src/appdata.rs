@@ -130,7 +130,7 @@ impl AppData {
 
     /// Открывает каталог данных в Проводнике.
     pub fn open_dir(&self) -> io::Result<()> {
-        spawn_detached("explorer.exe", &[self.dir.as_os_str()])
+        util::spawn_detached("explorer.exe", &[self.dir.as_os_str()])
     }
 }
 
@@ -139,17 +139,4 @@ fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
     let temp = path.with_extension("tmp");
     fs::write(&temp, contents)?;
     fs::rename(&temp, path)
-}
-
-/// Запускает вспомогательную программу без ожидания и без окна консоли.
-fn spawn_detached(program: &str, args: &[&std::ffi::OsStr]) -> io::Result<()> {
-    let mut command = std::process::Command::new(program);
-    command.args(args).stdin(std::process::Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW: не мигаем консолью при открытии Проводника.
-        command.creation_flags(0x0800_0000);
-    }
-    command.spawn().map(|_| ())
 }

@@ -1757,12 +1757,63 @@
       } else if (action === "folder") {
         const result = await desktop.openDataDir();
         toast("📂 Открыта папка данных", result.path);
+      } else if (action === "print") {
+        await desktop.print();
+        toast("🖨 Диалог печати открыт", "В нём же сохраняем страницу в PDF");
       } else if (action === "palette") {
         openPalette();
       }
     } catch (err) {
       toast("⚠️ Не получилось", err.message, "bad");
     }
+  }
+
+  /** Импортирует файл, перетащенный в окно десктопного приложения. */
+  function importDroppedFile(name, content) {
+    const lower = (name || "").toLowerCase();
+
+    if (lower.endsWith(".csv")) {
+      importCsv(content);
+      return;
+    }
+    if (!lower.endsWith(".json")) {
+      toast("⚠️ Формат не поддерживается", "Перетащите файл .json или .csv", "bad");
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(content);
+      if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.cards)) {
+        throw new Error("в файле нет списка карточек");
+      }
+      const count = parsed.cards.length;
+      const question = `Заменить текущий прогресс (${state.cards.length} карточек) данными из ${name} (${count})?`;
+      if (!confirm(question)) return;
+      applyImported(parsed);
+      toast("♻️ Прогресс загружен", `${name}: ${count} карточек`, "good");
+    } catch (err) {
+      toast("⚠️ Не удалось прочитать файл", err.message, "bad");
+    }
+  }
+
+  /**
+   * Подписка на события десктопной оболочки.
+   *
+   * События с префиксом `linguarust:` приходят только из нативной части, поэтому
+   * подписка безопасна и в браузере: без оболочки их просто не будет.
+   */
+  function initDesktopEvents() {
+    window.addEventListener("linguarust:file", (event) => {
+      const file = event.detail || {};
+      importDroppedFile(file.name, file.content);
+    });
+    window.addEventListener("linguarust:file-error", (event) => {
+      toast("⚠️ Файл не прочитан", event.detail || "", "bad");
+    });
+    window.addEventListener("linguarust:backup-done", (event) => {
+      const savedAt = event.detail?.savedAt;
+      toast("💾 Копия сохранена", savedAt ? `Ctrl+Alt+S · ${savedAt}` : "Ctrl+Alt+S");
+    });
   }
 
   /** Если в окне пусто, а на диске есть копия — поднимаем её молча. */
@@ -2297,13 +2348,31 @@
 
   /** Список команд: навигация по разделам и нативные действия десктопа. */
   function paletteCommands() {
+    // Подсказки системных горячих клавиш приходят из нативной части.
+    const key = (keys) => (desktopDetails?.hotkeys || []).find((item) => item.keys === keys)?.keys;
     const commands = [
-      { title: "Начать повторение", hint: "карточки, которые пора повторить", go: "#/" },
+      {
+        title: "Начать повторение",
+        hint: [key("Ctrl+Alt+L"), "карточки, которые пора повторить"].filter(Boolean).join(" · "),
+        go: "#/",
+      },
       { title: "Библиотека карточек", hint: "поиск, фильтры, удаление", go: "#/cards" },
-      { title: "Словарь", hint: `${data.entries.length} слов с переводом и примером`, go: "#/dictionary" },
+      {
+        title: "Словарь",
+        hint: `${data.entries.length} слов с переводом и примером`,
+        go: "#/dictionary",
+      },
       { title: "Чтение", hint: "тексты с переводом по клику", go: "#/reading" },
-      { title: "Грамматика", hint: `${data.exercises.length} упражнений с разбором`, go: "#/grammar" },
-      { title: "Экзамен", hint: `${EXAM_LENGTH} вопросов за ${EXAM_SECONDS} секунд`, go: "#/exam" },
+      {
+        title: "Грамматика",
+        hint: `${data.exercises.length} упражнений с разбором`,
+        go: "#/grammar",
+      },
+      {
+        title: "Экзамен",
+        hint: `${EXAM_LENGTH} вопросов за ${EXAM_SECONDS} секунд`,
+        go: "#/exam",
+      },
       { title: "Тренажёр письма", hint: "набор слова по памяти", go: "#/typing" },
       { title: "Статистика", hint: "график, достижения, прогноз", go: "#/stats" },
       { title: "Сменить тему", hint: currentTheme() === "dark" ? "светлая" : "тёмная", run: toggleTheme },
@@ -2312,9 +2381,18 @@
     if (desktop) {
       const dir = desktopDetails?.dataDir || "";
       commands.push(
-        { title: "Сохранить копию прогресса", hint: dir ? `файл в ${dir}` : "файл в папку данных", run: () => runDesktopAction("export") },
+        {
+          title: "Сохранить копию прогресса",
+          hint: [key("Ctrl+Alt+S"), dir].filter(Boolean).join(" · "),
+          run: () => runDesktopAction("export"),
+        },
         { title: "Восстановить из копии", hint: "последняя копия на диске", run: () => runDesktopAction("restore") },
         { title: "Открыть папку данных", hint: dir, run: () => runDesktopAction("folder") },
+        {
+          title: "Печать или PDF",
+          hint: "системный диалог WebView2",
+          run: () => runDesktopAction("print"),
+        },
         {
           title: desktopDetails?.autostart ? "Выключить автозапуск" : "Включить автозапуск",
           hint: "запуск вместе с Windows",
@@ -2464,6 +2542,7 @@
     window.addEventListener("hashchange", route);
     initShortcuts();
     initPalette();
+    initDesktopEvents();
     scheduleReminder();
     route();
     renderFooter();

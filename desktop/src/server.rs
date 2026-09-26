@@ -102,6 +102,7 @@ fn handle_bridge(bridge: &Bridge, method: &str, action: &str, body: &str) -> (u1
                     "platform": std::env::consts::OS,
                     "dataDir": data_dir,
                     "autostart": autostart::is_enabled(),
+                    "hotkeys": crate::hotkeys::described(),
                 })
                 .to_string(),
             )
@@ -196,6 +197,11 @@ fn handle_bridge(bridge: &Bridge, method: &str, action: &str, body: &str) -> (u1
                 .unwrap_or("light")
                 .to_string();
             let _ = bridge.events.send_event(AppEvent::SetTheme(theme));
+            (200, json!({ "ok": true }).to_string())
+        }
+        ("POST", "print") => {
+            // Диалог печати и «Сохранить как PDF» открывает сам WebView2.
+            let _ = bridge.events.send_event(AppEvent::Print);
             (200, json!({ "ok": true }).to_string())
         }
         ("POST", "open-data-dir") => match bridge.data.open_dir() {

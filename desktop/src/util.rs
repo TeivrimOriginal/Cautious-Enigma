@@ -1,6 +1,22 @@
 //! Форматирование даты и времени без внешних зависимостей.
 
+use std::ffi::OsStr;
+use std::io;
+use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Запускает вспомогательную программу без ожидания и без окна консоли.
+pub fn spawn_detached(program: &str, args: &[&OsStr]) -> io::Result<()> {
+    let mut command = Command::new(program);
+    command.args(args).stdin(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: Проводник и браузер не должны мигать консолью.
+        command.creation_flags(0x0800_0000);
+    }
+    command.spawn().map(|_| ())
+}
 
 /// Секунды с 1 января 1970 года.
 pub fn unix_seconds() -> u64 {

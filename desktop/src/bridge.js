@@ -47,7 +47,27 @@
 
     /** Открыть каталог данных в Проводнике. */
     openDataDir: () => call("open-data-dir", {}),
+
+    /** Открыть диалог печати или сохранения страницы в PDF. */
+    print: () => call("print", {}),
+
+    /**
+     * Срочная копия по горячей клавише Ctrl+Alt+S: состояние всегда лежит в
+     * localStorage, поэтому страница отдаёт его без синхронизации с UI.
+     */
+    flushBackup: async () => {
+      const payload = localStorage.getItem("linguarust.v1") || "{}";
+      const result = await bridge.backup(payload);
+      window.dispatchEvent(new CustomEvent("linguarust:backup-done", { detail: result }));
+      return result;
+    },
   };
 
   window.linguarustDesktop = bridge;
+
+  // Оболочка отправляет файл, перетащенный в окно, и ошибки его чтения.
+  window.__linguarustDrop = (file) =>
+    window.dispatchEvent(new CustomEvent("linguarust:file", { detail: file }));
+  window.__linguarustDropError = (message) =>
+    window.dispatchEvent(new CustomEvent("linguarust:file-error", { detail: message }));
 })();
