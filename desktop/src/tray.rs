@@ -69,12 +69,18 @@ impl Tray {
         })
     }
 
-    /// Обновляет подпись значка: сколько карточек ждёт повторения.
-    pub fn set_status(&self, due: usize, cards: usize) {
-        let tooltip = match (due, cards) {
-            (0, 0) => "LinguaRust · начните обучение".to_string(),
-            (0, cards) => format!("LinguaRust · {cards} карточек в работе"),
-            (due, _) => format!("LinguaRust · {due} к повторению"),
+    /// Обновляет подпись значка: фокус-сессия, очередь повторений, карточки.
+    pub fn set_status(&self, due: usize, cards: usize, focus: u64) {
+        let minutes = focus / 60;
+        let seconds = focus % 60;
+        let tooltip = if focus > 0 {
+            format!("LinguaRust · фокус {minutes:02}:{seconds:02}")
+        } else {
+            match (due, cards) {
+                (0, 0) => "LinguaRust · начните обучение".to_string(),
+                (0, cards) => format!("LinguaRust · {cards} карточек в работе"),
+                (due, _) => format!("LinguaRust · {due} к повторению"),
+            }
         };
         if let Err(err) = self.icon.set_tooltip(Some(tooltip)) {
             eprintln!("не удалось обновить подпись трея: {err}");

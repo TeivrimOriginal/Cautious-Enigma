@@ -28,7 +28,7 @@ use serde_json::json;
 use tao::dpi::{LogicalSize, PhysicalPosition};
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder};
-use tao::window::{Theme, Window, WindowBuilder};
+use tao::window::{Theme, UserAttentionType, Window, WindowBuilder};
 use wry::{DragDropEvent, NewWindowResponse, WebViewBuilder};
 
 use appdata::{AppData, WindowState};
@@ -40,6 +40,8 @@ const MIN_HEIGHT: f64 = 600.0;
 /// Размер окна при первом запуске.
 const DEFAULT_WIDTH: f64 = 1200.0;
 const DEFAULT_HEIGHT: f64 = 820.0;
+/// Основной локальный порт: фиксированный, чтобы origin сайта не менялся.
+const PORT: u16 = 47_715;
 /// Предел размера файла, который можно импортировать перетаскиванием.
 const MAX_DROPPED_FILE: u64 = 8 * 1024 * 1024;
 
@@ -65,7 +67,13 @@ pub enum AppEvent {
     /// Переключить режим «закрывать в трей».
     ToggleCloseToTray,
     /// Обновить подпись значка в трее.
-    Status { due: usize, cards: usize },
+    Status {
+        due: usize,
+        cards: usize,
+        focus: u64,
+    },
+    /// Мигнуть окном в панели задач: фокус-сессия закончилась.
+    Attention,
     /// Файл, перетащенный в окно.
     DroppedFile(String),
     /// Открыть диалог печати или сохранения в PDF.
@@ -102,7 +110,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         events: proxy.clone(),
         token: token.clone(),
     });
-    let port = server::start(site, bridge)?;
+    let port = server::start(site, bridge, PORT)?;
+    if port != PORT {
+        println!("порт {PORT} занят, сайт открыт на {port}: профиль будет новым");
+    }
     // Системные горячие клавиши живут, пока жив менеджер.
     let _hotkeys = hotkeys::register(proxy.clone());
 
@@ -138,13 +149,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     // видно, сколько карточек ждёт повторения.
     let tray = tray::Tray::new(&proxy, settings.close_to_tray);
     match &tray {
-        Ok(icon) => icon.set_status(settings.due, 0),
+        Ok(icon) => icon.set_status(settings.due, 0, 0),
         Err(err) => println!("трей недоступен: {err}"),
     }
 
     // Перетаскивание файла и внешние ссылки обрабатываются нативно.
     let drop_proxy = proxy.clone();
-    let webview = WebViewBuilder::new()
+    // Профиль WebView2 храним в каталоге данных приложения: иначе `cargo clean`
+    // или перенос бинарника обнуляют localStorage сайта вместе с прогрессом.
+    let user_data = data.dir().join("webview");
+    fs::create_dir_all(&user_data)?;
+    let mut context = wry::WebContext::new(Some(user_data));
+    let webview = WebViewBuilder::new_with_web_context(&mut context)
         .with_url(&url)
         .with_devtools(true)
         .with_initialization_script(bridge_script(&token))
@@ -171,6 +187,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build(&window)?;
 
     let mut last_save = Instant::now();
+    // `context` живёт вместе с циклом событий: WebView2 теряет часть
+    // возможностей, если контекст удалить раньше окна.
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
@@ -214,12 +232,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             let _ = data.save_settings(&settings);
         }
-        if let Event::UserEvent(AppEvent::Status { due, cards }) = &event {
+        if let Event::UserEvent(AppEvent::Status { due, cards, focus }) = &event {
             settings.due = *due;
             if let Ok(icon) = &tray {
-                icon.set_status(*due, *cards);
+                icon.set_status(*due, *cards, *focus);
             }
             let _ = data.save_settings(&settings);
+        }
+        if let Event::UserEvent(AppEvent::Attention) = &event {
+            // Свёрнутое окно не видно, поэтому мигает кнопка в панели задач.
+            window.request_user_attention(Some(UserAttentionType::Critical));
         }
         if let Event::UserEvent(AppEvent::Quit) = &event {
             settings.window = capture_geometry(&window, settings.window);

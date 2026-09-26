@@ -118,6 +118,7 @@
     goal: 20,
     healed: [],
     reminders: { enabled: false, time: "20:00" },
+    focus: emptyFocus(),
   });
 
   /** Комбо текущей сессии: растёт на верных ответах, сбрасывается на ошибке. */
@@ -484,6 +485,7 @@
     newCard: 5,
     grammarCorrect: 15,
     grammarWrong: 3,
+    focusRound: 15,
   };
 
   const LEVEL_FIRST = 100;
@@ -495,6 +497,7 @@
     const grammarTotal = state.grammar.length;
     const grammarCorrect = state.grammar.filter((answer) => answer.correct).length;
     const cards = state.cards.length;
+    const focusDone = focusRounds();
 
     return {
       successful,
@@ -502,12 +505,14 @@
       cards,
       grammarTotal,
       grammarCorrect,
+      focusRounds: focusDone,
       xp:
         successful * XP.reviewSuccess +
         failed * XP.reviewFail +
         cards * XP.newCard +
         grammarCorrect * XP.grammarCorrect +
-        (grammarTotal - grammarCorrect) * XP.grammarWrong,
+        (grammarTotal - grammarCorrect) * XP.grammarWrong +
+        focusDone * XP.focusRound,
     };
   }
 
@@ -1009,6 +1014,145 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * Фокус-сессия: 25 минут занятий и перерыв
+   *
+   * Работает и в браузере, и в десктопном окне: в приложении остаётся тост
+   * и мигает заголовок, в трее — обратный отсчёт.
+   * ------------------------------------------------------------------ */
+
+  /** Варианты длительности подхода, минуты. */
+  const FOCUS_PRESETS = [15, 25, 45];
+  /** Длительность перерыва, минуты. */
+  const BREAK_MINUTES = 5;
+  /** Как часто тикает таймер, мс. */
+  const FOCUS_TICK = 1000;
+
+  /** Состояние фокуса по умолчанию. */
+  function emptyFocus() {
+    return { mode: "focus", minutes: 25, endsAt: 0, startedAt: 0, rounds: 0, day: "", dayRounds: 0 };
+  }
+
+  /** Текущее состояние фокуса с учётом смены дня. */
+  function focus() {
+    const session = { ...emptyFocus(), ...(state.focus || {}) };
+    if (session.day !== today()) {
+      session.day = today();
+      session.dayRounds = 0;
+    }
+    return session;
+  }
+
+  /** Всего завершённых подходов — за них начисляется XP. */
+  function focusRounds() {
+    return Math.max(0, Number((state.focus || {}).rounds) || 0);
+  }
+
+  /** Остаток секунд текущей фазы; 0, если таймер не идёт. */
+  function focusRemaining() {
+    const session = focus();
+    if (!session.endsAt) return 0;
+    return Math.max(0, Math.round((session.endsAt - Date.now()) / 1000));
+  }
+
+  /** Короткая подпись обратного отсчёта для шапки. */
+  function focusClock() {
+    const seconds = focusRemaining();
+    if (!seconds) return "";
+    const icon = focus().mode === "break" ? "☕" : "⏳";
+    return `${icon} ${pad(Math.floor(seconds / 60))}:${pad(seconds % 60)}`;
+  }
+
+  /** Запускает подход или перерыв. */
+  function startFocus(minutes = 25, mode = "focus") {
+    const session = focus();
+    const length = Math.max(1, Number(minutes) || session.minutes);
+    state.focus = { ...session, mode, minutes: length, startedAt: Date.now(), endsAt: Date.now() + length * 60_000 };
+    saveState();
+    updateFocusChip();
+    route();
+    const label = `${length} ${plural(length, ["минута", "минуты", "минут"])}`;
+    toast(mode === "break" ? "☕ Перерыв начался" : "⏳ Подход начался", label);
+  }
+
+  /** Останавливает таймер без начисления XP. */
+  function stopFocus() {
+    if (!state.focus?.endsAt) return;
+    state.focus = { ...focus(), endsAt: 0, startedAt: 0 };
+    saveState();
+    updateFocusChip();
+    route();
+    toast("⏹ Таймер остановлен", "Подход не засчитан");
+  }
+
+  /** Тик таймера: обновляет подпись и завершает фазу, когда время вышло. */
+  function tickFocus() {
+    if (!state.focus?.endsAt) return;
+    if (focusRemaining() > 0) {
+      updateFocusChip();
+      return;
+    }
+
+    const session = focus();
+    if (session.mode === "break") {
+      // Перерыв закончился: ждём команды, чтобы не начинать подход сами.
+      state.focus = { ...session, endsAt: 0, startedAt: 0 };
+      saveState();
+      updateFocusChip();
+      route();
+      announce("Перерыв окончен", "Можно вернуться к занятиям");
+      return;
+    }
+
+    // Подход засчитан: +XP, счётчики и автоматический перерыв.
+    state.focus = { ...session, rounds: session.rounds + 1, dayRounds: session.dayRounds + 1, endsAt: 0, startedAt: 0 };
+    saveState();
+    announce("Подход завершён", `+${XP.focusRound} XP. Перерыв ${BREAK_MINUTES} минут — встань и разомнись.`);
+    startFocus(BREAK_MINUTES, "break");
+  }
+
+  /** Тост + системное уведомление + внимание окна десктопа. */
+  function announce(title, body) {
+    toast(title, body, "good");
+    if ("Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification("LinguaRust", { body, icon: "icon.svg", tag: "linguarust-focus" });
+      } catch (err) {
+        /* часть сборок WebView2 запрещает уведомления из страницы */
+      }
+    }
+    // Десктоп мигает заголовком окна и пишет отсчёт в трей.
+    desktop?.attention();
+  }
+
+  /** Обновляет секундомер в шапке и на панели без перерисовки экрана. */
+  function updateFocusChip() {
+    const clock = focusClock();
+    const chip = document.getElementById("focus-chip");
+    if (chip) {
+      chip.textContent = clock;
+      // Пустой бейдж не занимает место в шапке.
+      chip.hidden = !clock;
+      chip.title = clock ? "Фокус-сессия идёт — нажмите, чтобы остановить" : "Фокус-сессия не запущена";
+      chip.classList.toggle("running", Boolean(clock));
+    }
+
+    // Виджет на главной: часы и полоса прохождения подхода.
+    const widget = document.getElementById("focus-widget-clock");
+    if (!widget) return;
+    const session = focus();
+    const total = session.minutes * 60;
+    const elapsed = Math.max(0, total - focusRemaining());
+    widget.textContent = clock;
+    const bar = widget.closest(".panel")?.querySelector(".progress span");
+    if (bar && total > 0) bar.style.width = `${Math.round((elapsed / total) * 100)}%`;
+  }
+
+  function initFocus() {
+    setInterval(tickFocus, FOCUS_TICK);
+    updateFocusChip();
+  }
+
+  /* ------------------------------------------------------------------ *
    * Прогноз: симуляция SM-2 на будущие дни
    * ------------------------------------------------------------------ */
 
@@ -1070,6 +1214,52 @@
       </section>`;
   }
 
+  /** Панель фокус-сессии: запуск подхода, обратный отсчёт и счётчик дня. */
+  function focusWidget() {
+    const session = focus();
+    const remaining = focusRemaining();
+    const total = session.minutes * 60;
+    const percent = remaining ? Math.round(((total - remaining) / total) * 100) : 0;
+
+    const running = remaining
+      ? `<div class="actions" style="justify-content:space-between;align-items:center">
+          <div>
+            <span class="tag ${session.mode === "break" ? "" : "ok"}">${
+              session.mode === "break" ? "Перерыв" : "Подход"
+            }</span>
+            <h2 class="focus-clock" id="focus-widget-clock" style="margin:8px 0 4px">${focusClock()}</h2>
+            <p class="muted small" style="margin:0">${
+              session.mode === "break" ? "Встань, посмотри вдаль, попей воды" : "Повторения важнее новых слов"
+            }</p>
+          </div>
+          <button class="btn ghost" data-focus="stop">Остановить</button>
+        </div>
+        <div class="progress" style="margin-top:12px"><span style="width:${percent}%"></span></div>`
+      : `<div class="actions" style="justify-content:space-between;align-items:center">
+          <div>
+            <span class="tag">Фокус-сессия</span>
+            <p class="muted small" style="margin:8px 0 0">
+              Подходы по ${FOCUS_PRESETS.join(", ")} минут, перерыв ${BREAK_MINUTES} минут.
+              Завершённый подход даёт ${XP.focusRound} XP.
+            </p>
+          </div>
+          <div class="actions">
+            ${FOCUS_PRESETS.map(
+              (minutes) =>
+                `<button class="btn small ${session.minutes === minutes ? "" : "ghost"}" data-focus="${minutes}">${minutes} мин</button>`,
+            ).join("")}
+          </div>
+        </div>`;
+
+    return `<section class="panel" style="margin-top:20px">
+        <h3>Сосредоточься</h3>
+        ${running}
+        <p class="muted small" style="margin-bottom:0">
+          Сегодня подходов: ${session.dayRounds} · всего: ${focusRounds()}
+        </p>
+      </section>`;
+  }
+
   function renderHome() {
     const s = stats();
     const days = [];
@@ -1121,6 +1311,8 @@
         <div class="progress" style="margin-top:6px"><span style="width:${goalPercent}%;background:var(--good)"></span></div>
       </section>`;
 
+    const focusPanel = focusWidget();
+
     return `
       <section class="panel">
         <h1 style="margin-bottom:4px">Привет, ${escapeHtml(state.profile.name)}!</h1>
@@ -1139,6 +1331,8 @@
       </section>
 
       ${levelPanel}
+
+      ${focusPanel}
 
       ${wordCard}
 
@@ -1684,6 +1878,7 @@
         ${currentTheme() === "dark" ? "☀️" : "🌙"}
       </button>
       <span class="badge">🔥 ${s.current} дн.</span>
+      <span class="badge" id="focus-chip" title="Фокус-сессия не запущена" ${focusClock() ? "" : "hidden"}>${focusClock()}</span>
       ${s.freezes > 0 ? `<span class="badge" title="Защита стрика: достижения">❄️ ${s.freezes}</span>` : ""}
       ${s.due > 0 ? `<span class="badge hot">${s.due} к повторению</span>` : ""}
       <button class="btn ghost small" id="reminder" title="Напоминания о повторениях">
@@ -1851,7 +2046,8 @@
     statusTimer = window.setTimeout(async () => {
       statusTimer = 0;
       const due = Math.min(dueCards().length, 999);
-      await desktop.status({ due, cards: state.cards.length }).catch(() => ({}));
+      const status = { due, cards: state.cards.length, focus: focusRemaining() };
+      await desktop.status(status).catch(() => ({}));
     }, 2000);
   }
 
@@ -2070,6 +2266,14 @@
         removeCard(card.id);
         route();
       }
+      return;
+    }
+
+    const focusButton = event.target.closest("[data-focus]");
+    if (focusButton) {
+      const action = focusButton.dataset.focus;
+      if (action === "stop") stopFocus();
+      else startFocus(Number(action));
       return;
     }
 
@@ -2414,6 +2618,11 @@
       },
       { title: "Тренажёр письма", hint: "набор слова по памяти", go: "#/typing" },
       { title: "Статистика", hint: "график, достижения, прогноз", go: "#/stats" },
+      {
+        title: focusRemaining() ? "Остановить фокус" : "Фокус-сессия 25 минут",
+        hint: focusRemaining() ? focusClock() : "таймер и перерыв",
+        run: focusRemaining() ? stopFocus : () => startFocus(25),
+      },
       { title: "Сменить тему", hint: currentTheme() === "dark" ? "светлая" : "тёмная", run: toggleTheme },
     ];
 
@@ -2588,6 +2797,7 @@
     window.addEventListener("hashchange", route);
     initShortcuts();
     initPalette();
+    initFocus();
     initDesktopEvents();
     scheduleReminder();
     route();

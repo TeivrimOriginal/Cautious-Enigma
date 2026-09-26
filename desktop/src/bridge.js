@@ -43,7 +43,10 @@
     importOpen: () => call("import-dialog"),
 
     /** Передать оболочке состояние для подписи в трее. */
-    status: ({ due, cards }) => call("status", { due, cards }).catch(() => ({})),
+    status: ({ due, cards, focus }) => call("status", { due, cards, focus }).catch(() => ({})),
+
+    /** Попросить оболочку мигнуть окном в панели задач. */
+    attention: () => call("attention", {}).catch(() => ({})),
 
     /** Переключить режим «закрывать в трей». */
     toggleCloseToTray: () => call("close-to-tray", {}),

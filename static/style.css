@@ -144,9 +144,27 @@ a:hover {
   font-size: 13px;
 }
 
+/* ---------- Фокус-сессия ---------- */
+
 .badge.hot {
   background: #fdecec;
   color: var(--bad);
+}
+
+.focus-clock {
+  font-variant-numeric: tabular-nums;
+  font-size: 34px;
+  letter-spacing: 0.5px;
+  line-height: 1.1;
+}
+
+#focus-chip {
+  font-variant-numeric: tabular-nums;
+}
+
+#focus-chip.running {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
 }
 
 /* ---------- Карточки и панели ---------- */

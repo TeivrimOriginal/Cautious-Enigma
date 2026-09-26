@@ -31,6 +31,8 @@ const MAX_HEADER: usize = 16 * 1024;
 const MAX_BODY: usize = 8 * 1024 * 1024;
 /// Заголовок с токеном запуска.
 const TOKEN_HEADER: &str = "x-linguarust-token";
+/// Сколько портов перебираем, если основной занят.
+const PORT_ATTEMPTS: u16 = 20;
 
 /// Состояние нативной части приложения, доступное серверу.
 pub struct Bridge {
@@ -42,8 +44,12 @@ pub struct Bridge {
 }
 
 /// Запускает сервер и возвращает выбранный порт.
-pub fn start(root: PathBuf, bridge: Arc<Bridge>) -> io::Result<u16> {
-    let listener = TcpListener::bind(("127.0.0.1", 0))?;
+///
+/// Порт предпочтительный: origin `http://127.0.0.1:<порт>` определяет
+/// `localStorage` сайта, поэтому менять его между запусками нельзя — иначе
+/// браузерное хранилище обнуляется. Если порт занят, перебираем следующие.
+pub fn start(root: PathBuf, bridge: Arc<Bridge>, preferred: u16) -> io::Result<u16> {
+    let listener = bind_first_free(preferred)?;
     let port = listener.local_addr()?.port();
 
     thread::spawn(move || {
@@ -58,6 +64,18 @@ pub fn start(root: PathBuf, bridge: Arc<Bridge>) -> io::Result<u16> {
     });
 
     Ok(port)
+}
+
+/// Занимает предпочтительный порт или ближайший свободный.
+fn bind_first_free(preferred: u16) -> io::Result<TcpListener> {
+    let mut last_error = None;
+    for offset in 0..PORT_ATTEMPTS {
+        match TcpListener::bind(("127.0.0.1", preferred + offset)) {
+            Ok(listener) => return Ok(listener),
+            Err(err) => last_error = Some(err),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| io::Error::other("не удалось занять локальный порт")))
 }
 
 /// Обслуживает один запрос: сначала пробуем мост, иначе отдаём статику.
@@ -219,12 +237,20 @@ fn handle_bridge(bridge: &Bridge, method: &str, action: &str, body: &str) -> (u1
                 ),
             }
         }
-        // Подпись значка в трее: сколько карточек ждёт повторения.
+        // Подпись значка в трее: фокус-сессия и очередь повторений.
         ("POST", "status") => {
             let request = request();
             let due = request.get("due").and_then(Value::as_u64).unwrap_or(0) as usize;
             let cards = request.get("cards").and_then(Value::as_u64).unwrap_or(0) as usize;
-            let _ = bridge.events.send_event(AppEvent::Status { due, cards });
+            let focus = request.get("focus").and_then(Value::as_u64).unwrap_or(0);
+            let _ = bridge
+                .events
+                .send_event(AppEvent::Status { due, cards, focus });
+            (200, json!({ "ok": true }).to_string())
+        }
+        // Окно просит attention: мигает в панели задач, пока оно свёрнуто.
+        ("POST", "attention") => {
+            let _ = bridge.events.send_event(AppEvent::Attention);
             (200, json!({ "ok": true }).to_string())
         }
         ("POST", "close-to-tray") => {
