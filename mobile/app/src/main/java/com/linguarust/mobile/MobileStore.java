@@ -34,6 +34,8 @@ public final class MobileStore {
     private static final String EXAM_TOTAL = "exam_total";
     private static final String EXAM_CORRECT = "exam_correct";
     private static final String GOAL = "daily_goal";
+    private static final String TYPING_TOTAL = "typing_total";
+    private static final String TYPING_CORRECT = "typing_correct";
 
     private final SharedPreferences preferences;
     private final ContentRepository content;
@@ -170,6 +172,22 @@ public final class MobileStore {
                 .apply();
     }
 
+    public int typingTotal() {
+        return preferences.getInt(TYPING_TOTAL, 0);
+    }
+
+    public int typingCorrect() {
+        return preferences.getInt(TYPING_CORRECT, 0);
+    }
+
+    public void recordTyping(boolean correct) {
+        preferences.edit()
+                .putInt(TYPING_TOTAL, typingTotal() + 1)
+                .putInt(TYPING_CORRECT, typingCorrect() + (correct ? 1 : 0))
+                .putInt(XP, xp() + (correct ? 6 : 1))
+                .apply();
+    }
+
     public int grammarTotal() {
         return preferences.getInt(GRAMMAR_TOTAL, 0);
     }
@@ -257,6 +275,8 @@ public final class MobileStore {
                 .remove(EXAM_TOTAL)
                 .remove(EXAM_CORRECT)
                 .remove(GOAL)
+                .remove(TYPING_TOTAL)
+                .remove(TYPING_CORRECT)
                 .apply();
         cards.clear();
         seedStarterCards();

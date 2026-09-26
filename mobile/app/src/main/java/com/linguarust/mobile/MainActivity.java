@@ -11,6 +11,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.text.Editable;
+import android.text.InputType;
 import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -58,6 +59,13 @@ public final class MainActivity extends Activity {
     private boolean grammarAnswered;
     private int grammarChoice = -1;
     private ReadingText selectedText;
+    private DictionaryEntry typingEntry;
+    private EditText typingInput;
+    private boolean typingAnswered;
+    private boolean typingCorrect;
+    private int typingAnsweredCount;
+    private int typingCorrectCount;
+    private final Random typingRandom = new Random();
     private final List<ExamQuestion> examQuestions = new ArrayList<>();
     private final Random examRandom = new Random();
     private int examIndex;
@@ -178,6 +186,8 @@ public final class MainActivity extends Activity {
         }
         if ("exam".equals(key)) {
             startExam();
+        } else if ("typing".equals(key)) {
+            startTyping();
         } else if (examTimer != null) {
             examTimer.cancel();
             examTimer = null;
@@ -220,6 +230,9 @@ public final class MainActivity extends Activity {
                 break;
             case "exam-result":
                 renderExamResult();
+                break;
+            case "typing":
+                renderTyping();
                 break;
             default:
                 renderHome();
@@ -725,6 +738,8 @@ public final class MainActivity extends Activity {
         page.addView(space(10));
         page.addView(menuCard("Экзамен", "10 вопросов за 90 секунд", "exam"));
         page.addView(space(10));
+        page.addView(menuCard("Тренажёр письма", "Перевод → слово с клавиатуры", "typing"));
+        page.addView(space(10));
         page.addView(menuCard("Настройки", "Профиль и локальное хранилище", "settings"));
         content.addView(page);
     }
@@ -854,6 +869,110 @@ public final class MainActivity extends Activity {
             render();
         }));
         content.addView(page);
+    }
+
+    private void startTyping() {
+        typingAnswered = false;
+        typingCorrect = false;
+        typingAnsweredCount = 0;
+        typingCorrectCount = 0;
+        typingInput = null;
+        typingEntry = randomTypingEntry();
+    }
+
+    private DictionaryEntry randomTypingEntry() {
+        if (repository.dictionary().isEmpty()) return null;
+        DictionaryEntry candidate;
+        do {
+            candidate = repository.dictionary().get(typingRandom.nextInt(repository.dictionary().size()));
+        } while (typingEntry != null
+                && repository.dictionary().size() > 1
+                && candidate.front.equalsIgnoreCase(typingEntry.front));
+        return candidate;
+    }
+
+    private void renderTyping() {
+        topTitle.setText(t("Тренажёр письма"));
+        if (typingEntry == null) {
+            LinearLayout page = page();
+            page.addView(label("Словарь не загрузился", 18, textColor, true));
+            content.addView(page);
+            return;
+        }
+
+        LinearLayout page = page();
+        LinearLayout meta = row();
+        meta.addView(label("Правильных: " + typingCorrectCount, 14, mutedColor),
+                new LinearLayout.LayoutParams(0, dp(32), 1));
+        meta.addView(label("Проверок: " + typingAnsweredCount, 14, accent));
+        page.addView(meta);
+        page.addView(space(12));
+
+        LinearLayout card = panel();
+        card.addView(label("Перевод", 13, accent, true));
+        card.addView(space(10));
+        card.addView(label(typingEntry.back, 27, textColor, true));
+        card.addView(space(6));
+        card.addView(label("Введи английское слово", 14, mutedColor));
+        card.addView(space(14));
+
+        typingInput = new EditText(this);
+        typingInput.setSingleLine(true);
+        typingInput.setHint(t("Английское слово"));
+        typingInput.setTextColor(textColor);
+        typingInput.setHintTextColor(mutedColor);
+        typingInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        typingInput.setBackground(round(surfaceMuted, 12));
+        typingInput.setPadding(dp(14), 0, dp(14), 0);
+        typingInput.setEnabled(!typingAnswered);
+        card.addView(typingInput, new LinearLayout.LayoutParams(-1, dp(52)));
+
+        if (!typingAnswered) {
+            Button check = primaryButton("Проверить", v -> checkTyping());
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(48));
+            params.topMargin = dp(12);
+            card.addView(check, params);
+        } else {
+            card.addView(space(12));
+            card.addView(label(typingCorrect ? "Верно! +6 XP" : "Ошибка. +1 XP", 16,
+                    typingCorrect ? good : bad, true));
+            card.addView(label("Правильный ответ: " + typingEntry.front, 16, textColor, true));
+            if (!typingEntry.example.isEmpty()) {
+                card.addView(space(6));
+                card.addView(label(typingEntry.example, 14, mutedColor));
+            }
+            Button next = primaryButton("Следующее слово", v -> {
+                typingEntry = randomTypingEntry();
+                typingAnswered = false;
+                typingCorrect = false;
+                typingInput = null;
+                render();
+            });
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(48));
+            params.topMargin = dp(12);
+            card.addView(next, params);
+        }
+        page.addView(card);
+        content.addView(page);
+    }
+
+    private void checkTyping() {
+        if (typingAnswered || typingEntry == null || typingInput == null) return;
+        String answer = normalizeTyping(typingInput.getText().toString());
+        String expected = normalizeTyping(typingEntry.front);
+        typingCorrect = !answer.isEmpty() && answer.equals(expected);
+        typingAnswered = true;
+        typingAnsweredCount++;
+        if (typingCorrect) typingCorrectCount++;
+        store.recordTyping(typingCorrect);
+        render();
+    }
+
+    private String normalizeTyping(String value) {
+        String result = value == null ? "" : value.trim().toLowerCase(Locale.ROOT)
+                .replaceAll("\\s+", " ");
+        if (result.startsWith("to ")) result = result.substring(3);
+        return result;
     }
 
     private void startExam() {
@@ -1032,6 +1151,7 @@ public final class MainActivity extends Activity {
         addStat(page, "Повторения", store.reviews() + " · точность " + store.accuracy() + "%");
         addStat(page, "Грамматика", store.grammarCorrect() + " / " + store.grammarTotal());
         addStat(page, "Экзамен", store.examCorrect() + " / " + store.examTotal());
+        addStat(page, "Тренажёр письма", store.typingCorrect() + " / " + store.typingTotal());
         addStat(page, "Серия", store.streak() + " дн.");
         page.addView(space(18));
         page.addView(secondaryButton("Сбросить локальный прогресс", v -> confirmReset()));
@@ -1256,6 +1376,8 @@ public final class MainActivity extends Activity {
             result = "Question " + result.substring(8);
         } else if (result.startsWith("Всего: ")) {
             result = "Total: " + result.substring(7);
+        } else if (result.startsWith("Правильный ответ: ")) {
+            result = "Correct answer: " + result.substring(18);
         } else if (result.startsWith("Ошибка. Правильный ответ: ")) {
             result = "Wrong. Correct answer: " + result.substring(26);
         } else if (result.startsWith("LinguaRust Mobile — ")) {
@@ -1334,8 +1456,20 @@ public final class MainActivity extends Activity {
             case "Чтение": return "Reading";
             case "Статистика": return "Statistics";
             case "Экзамен": return "Exam";
+            case "Тренажёр письма": return "Typing trainer";
+            case "Перевод → слово с клавиатуры": return "Translation → type the word";
             case "10 вопросов за 90 секунд": return "10 questions in 90 seconds";
             case "Недостаточно слов для экзамена": return "Not enough words for an exam";
+            case "Правильных: ": return "Correct: ";
+            case "Проверок: ": return "Checks: ";
+            case "Перевод": return "Translation";
+            case "Введи английское слово": return "Type the English word";
+            case "Английское слово": return "English word";
+            case "Проверить": return "Check";
+            case "Верно! +6 XP": return "Correct! +6 XP";
+            case "Ошибка. +1 XP": return "Mistake. +1 XP";
+            case "Следующее слово": return "Next word";
+            case "Словарь не загрузился": return "Dictionary could not be loaded";
             case "Выбери слово": return "Choose the word";
             case "Выбери перевод": return "Choose the translation";
             case "Верно! +8 XP": return "Correct! +8 XP";
@@ -1367,7 +1501,6 @@ public final class MainActivity extends Activity {
             case "Отмена": return "Cancel";
             case "Сохранить": return "Save";
             case "Слово по-английски": return "English word";
-            case "Перевод": return "Translation";
             case "Пример (необязательно)": return "Example (optional)";
             case "Новая карточка": return "New card";
             case "Добавить": return "Add";
