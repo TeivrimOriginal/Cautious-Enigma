@@ -1,0 +1,2179 @@
+// LinguaRust — статическая версия сайта.
+//
+// Работает без сервера: словарь, тексты и упражнения загружаются как файлы,
+// прогресс хранится в localStorage. Алгоритм повторений — тот же SM-2,
+// что и в серверной версии (src/sm2.rs).
+
+(function () {
+  "use strict";
+
+  const STORAGE_KEY = "linguarust.v1";
+  const MIN_EASE = 1.3;
+  const REVIEW_QUALITIES = [
+    { value: 1, label: "Опять", css: "bad" },
+    { value: 3, label: "Сложно", css: "warn" },
+    { value: 4, label: "Нормально", css: "soft" },
+    { value: 5, label: "Легко", css: "good" },
+  ];
+
+  const app = document.getElementById("app");
+  const profileBox = document.getElementById("profile-box");
+
+  /* ------------------------------------------------------------------ *
+   * Утилиты
+   * ------------------------------------------------------------------ */
+
+  const pad = (n) => String(n).padStart(2, "0");
+
+  function today() {
+    const now = new Date();
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  }
+
+  function addDays(date, days) {
+    const [y, m, d] = date.split("-").map(Number);
+    const target = new Date(y, m - 1, d + days);
+    return `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`;
+  }
+
+  function daysBetween(a, b) {
+    const [ay, am, ad] = a.split("-").map(Number);
+    const [by, bm, bd] = b.split("-").map(Number);
+    return Math.round((new Date(by, bm - 1, bd) - new Date(ay, am - 1, ad)) / 86400000);
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, (ch) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    })[ch]);
+  }
+
+  /** Русское склонение: plural(2, ["слово", "слова", "слов"]) → «2 слова». */
+  function plural(count, forms) {
+    const n = Math.abs(count) % 100;
+    const n1 = n % 10;
+    if (n > 10 && n < 20) return forms[2];
+    if (n1 > 1 && n1 < 5) return forms[1];
+    if (n1 === 1) return forms[0];
+    return forms[2];
+  }
+
+  function formatInterval(days) {
+    if (days <= 0) return "сейчас";
+    if (days === 1) return "через 1 день";
+    if (days <= 4) return `через ${days} дня`;
+    if (days <= 20) return `через ${days} дней`;
+    if (days <= 365) return `через ${Math.round(days / 30)} мес.`;
+    return `через ${(days / 365).toFixed(1)} года`;
+  }
+
+  const mastery = (repetitions) =>
+    repetitions <= 0 ? 0 : Math.min(repetitions, 5) * 20;
+
+  /* ------------------------------------------------------------------ *
+   * Произношение (Web Speech API, работает офлайн)
+   * ------------------------------------------------------------------ */
+
+  function speak(word) {
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(word);
+    utterance.lang = "en-GB";
+    utterance.rate = 0.95;
+
+    const voices = window.speechSynthesis.getVoices();
+    const english = voices.find(
+      (voice) => voice.lang?.toLowerCase().startsWith("en") && /female|samantha|karen|zira/i.test(voice.name),
+    ) || voices.find((voice) => voice.lang?.toLowerCase().startsWith("en"));
+    if (english) utterance.voice = english;
+
+    window.speechSynthesis.speak(utterance);
+  }
+
+  /** Кнопка озвучивания для карточек и словаря. */
+  const speakButton = (word) =>
+    `<button class="icon-btn" data-speak="${escapeHtml(word)}" title="Произнести" aria-label="Произнести">🔊</button>`;
+
+  function accuracy(total, successful) {
+    if (total <= 0) return 0;
+    return Math.min(100, (successful / total) * 100);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Хранилище (localStorage)
+   * ------------------------------------------------------------------ */
+
+  const emptyState = () => ({
+    profile: null,
+    cards: [],
+    reviews: [],
+    grammar: [],
+    knownWords: [],
+    unlocked: {},
+    bestCombo: 0,
+    goal: 20,
+    healed: [],
+    reminders: { enabled: false, time: "20:00" },
+  });
+
+  /** Комбо текущей сессии: растёт на верных ответах, сбрасывается на ошибке. */
+  let sessionCombo = 0;
+
+  let state = emptyState();
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      state = raw ? { ...emptyState(), ...JSON.parse(raw) } : emptyState();
+    } catch (err) {
+      state = emptyState();
+    }
+  }
+
+  function saveState() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (err) {
+      console.warn("не удалось сохранить прогресс", err);
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Данные: словарь, тексты, упражнения
+   * ------------------------------------------------------------------ */
+
+  const data = { dictionary: new Map(), entries: [], texts: [], exercises: [] };
+
+  async function loadData() {
+    const [tsv, texts, grammar] = await Promise.all([
+      fetch("data/dictionary.tsv").then((r) => r.text()),
+      fetch("data/texts.json").then((r) => r.json()),
+      fetch("data/grammar.json").then((r) => r.json()),
+    ]);
+    data.dictionary = buildDictionary(tsv);
+    data.entries = [...new Map([...data.dictionary.values()].map((entry) => [entry.front, entry])).values()]
+      .sort((a, b) => a.front.toLowerCase().localeCompare(b.front.toLowerCase()));
+    data.texts = texts;
+    data.exercises = grammar;
+  }
+
+  const normalize = (word) =>
+    word
+      .trim()
+      .replace(/^[^A-Za-zÀ-ɏ'’-]+|[^A-Za-zÀ-ɏ'’-]+$/g, "")
+      .toLowerCase();
+
+  function buildDictionary(tsv) {
+    const map = new Map();
+    for (const line of tsv.split(/\r?\n/)) {
+      const row = line.trim();
+      if (!row || row.startsWith("#")) continue;
+      const [front, back, example] = row.split("\t");
+      if (!front || !back) continue;
+      const entry = { front, back: back.trim(), example: (example || "").trim() };
+      map.set(normalize(front), entry);
+      if (front.startsWith("to ")) {
+        map.set(normalize(front.slice(3)), entry);
+      }
+    }
+    return map;
+  }
+
+  /** Простые словоформы: books → book, running → run, delays → delay. */
+  function candidateForms(word) {
+    const forms = [];
+    const push = (stem) => {
+      if (stem && stem !== word) forms.push(stem);
+    };
+
+    if (word.endsWith("ies")) push(`${word.slice(0, -3)}y`);
+    ["ing", "ed", "es", "s"].forEach((suffix) => {
+      if (!word.endsWith(suffix)) return;
+      const stem = word.slice(0, -suffix.length);
+      push(stem);
+      push(`${stem}e`);
+      if (stem.length > 2 && stem.at(-1) === stem.at(-2) && !"aeiou".includes(stem.at(-1))) {
+        push(stem.slice(0, -1));
+      }
+    });
+    if (word.endsWith("ly")) push(word.slice(0, -2));
+
+    return [...new Set(forms)];
+  }
+
+  function lookupWord(raw) {
+    const key = normalize(raw);
+    if (!key) return null;
+    return data.dictionary.get(key) || candidateForms(key).map((f) => data.dictionary.get(f)).find(Boolean) || null;
+  }
+
+  /** Слово дня: стабильный выбор по номеру дня в году. */
+  function wordOfTheDay() {
+    if (!data.entries.length) return null;
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 1);
+    const dayOfYear = Math.floor((now - start) / 86400000);
+    return data.entries[dayOfYear % data.entries.length];
+  }
+
+  /* ------------------------------------------------------------------ *
+   * SM-2
+   * ------------------------------------------------------------------ */
+
+  function reviewCard(card, quality) {
+    const q = Math.max(0, Math.min(5, quality));
+    let { repetitions, intervalDays, ease } = card;
+
+    if (q >= 3) {
+      repetitions += 1;
+      if (repetitions === 1) intervalDays = 1;
+      else if (repetitions === 2) intervalDays = 6;
+      else intervalDays = Math.max(1, Math.round(intervalDays * ease));
+    } else {
+      repetitions = 0;
+      intervalDays = 1;
+    }
+
+    ease = Math.max(MIN_EASE, ease + 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
+    return { ...card, repetitions, intervalDays, ease, dueDate: addDays(today(), intervalDays), lastReviewedAt: new Date().toISOString() };
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Карточки
+   * ------------------------------------------------------------------ */
+
+  function dueCards() {
+    const day = today();
+    if (weakOnly) {
+      // Режим тренировки: самые забываемые слова, независимо от даты.
+      const byErrors = new Map(weakWords(50).map((word) => [word.front, word.errors]));
+      return state.cards
+        .filter((card) => byErrors.has(card.front))
+        .sort((a, b) => (byErrors.get(b.front) || 0) - (byErrors.get(a.front) || 0));
+    }
+    return state.cards
+      .filter((card) => card.dueDate && card.dueDate <= day)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.repetitions - b.repetitions);
+  }
+
+  function addCard(front, back, example) {
+    const word = front.trim();
+    if (!word || !back.trim()) return false;
+    if (state.cards.some((card) => card.front.toLowerCase() === word.toLowerCase())) return false;
+
+    state.cards.push({
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      front: word,
+      back: back.trim(),
+      example: (example || "").trim(),
+      repetitions: 0,
+      intervalDays: 0,
+      ease: 2.5,
+      dueDate: today(),
+      createdAt: new Date().toISOString(),
+    });
+    saveState();
+    checkAchievements();
+    return true;
+  }
+
+  function gradeCard(cardId, quality) {
+    const index = state.cards.findIndex((card) => card.id === cardId);
+    if (index < 0) return;
+
+    const gained = reviewCard(state.cards[index], quality);
+    state.cards[index] = gained;
+    state.reviews.push({ cardId, quality, day: today() });
+    saveState();
+
+    // Комбо и награда за ответ.
+    if (quality >= 3) {
+      sessionCombo += 1;
+      state.bestCombo = Math.max(state.bestCombo || 0, sessionCombo);
+      saveState();
+      toast(`+${XP.reviewSuccess} XP`, sessionCombo > 2 ? `🔥 серия ${sessionCombo}` : "", "good");
+    } else {
+      sessionCombo = 0;
+      toast(`+${XP.reviewFail} XP`, "серия прервана", "bad");
+    }
+
+    checkAchievements();
+  }
+
+  function removeCard(cardId) {
+    state.cards = state.cards.filter((card) => card.id !== cardId);
+    saveState();
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Статистика
+   * ------------------------------------------------------------------ */
+
+  /** Слова, которые чаще всего забывались: требуют отдельного внимания. */
+  function weakWords(limit = 8) {
+    const errors = new Map();
+    const attempts = new Map();
+
+    state.reviews.forEach((review) => {
+      attempts.set(review.cardId, (attempts.get(review.cardId) || 0) + 1);
+      if (review.quality < 3) errors.set(review.cardId, (errors.get(review.cardId) || 0) + 1);
+    });
+
+    return [...errors.entries()]
+      .map(([cardId, count]) => {
+        const card = state.cards.find((item) => item.id === cardId);
+        if (!card) return null;
+        return {
+          front: card.front,
+          back: card.back,
+          errors: count,
+          attempts: attempts.get(cardId) || count,
+          mastery: mastery(card.repetitions),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.errors - a.errors || b.attempts - a.attempts)
+      .slice(0, limit);
+  }
+
+  function stats() {
+    const days = [...new Set(state.reviews.map((review) => review.day))].sort();
+    // Защищённые дни тоже считаются активными: стрик через них не рвётся.
+    const healed = state.healed || [];
+    const active = new Set([...days, ...healed]);
+    const day = today();
+    const yesterday = addDays(day, -1);
+
+    let current = 0;
+    let cursor = active.has(day) ? day : active.has(yesterday) ? yesterday : null;
+    if (cursor) {
+      while (active.has(cursor)) {
+        current += 1;
+        cursor = addDays(cursor, -1);
+      }
+    }
+
+    const sortedActive = [...active].sort();
+    let longest = 0;
+    let run = 0;
+    sortedActive.forEach((currentDay, index) => {
+      run = index > 0 && daysBetween(sortedActive[index - 1], currentDay) === 1 ? run + 1 : 1;
+      longest = Math.max(longest, run);
+    });
+
+    const totalReviews = state.reviews.length;
+    const successful = state.reviews.filter((review) => review.quality >= 3).length;
+    const learned = state.cards.filter((card) => card.repetitions > 0).length;
+    const byDay = new Map();
+    state.reviews.forEach((review) => byDay.set(review.day, (byDay.get(review.day) || 0) + 1));
+
+    return {
+      current,
+      longest,
+      totalReviews,
+      successful,
+      accuracy: accuracy(totalReviews, successful),
+      totalCards: state.cards.length,
+      learned,
+      fresh: state.cards.length - learned,
+      due: dueCards().length,
+      todayReviews: byDay.get(day) || 0,
+      daysActive: sortedActive.length,
+      perDay: sortedActive.length ? totalReviews / sortedActive.length : 0,
+      byDay,
+      freezes: freezes(),
+      healed,
+    };
+  }
+
+  /** Скачивает карточки в CSV (с BOM, чтобы Excel открыл кириллицу). */
+  function exportCsv() {
+    const quote = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const lines = state.cards.map((card) =>
+      [card.front, card.back, card.example].map(quote).join(";"),
+    );
+    const csv = "﻿word;translation;example\n" + lines.join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `linguarust-cards-${today()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** Разбирает вставленный CSV: разделитель ; , или табуляция. */
+  function importCsv(text) {
+    let added = 0;
+    let skipped = 0;
+
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"))
+      .forEach((line) => {
+        const [front = "", back = "", example = ""] = line.split(/[;\t]|,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+        if (addCard(front, back, example)) added += 1;
+        else skipped += 1;
+      });
+
+    // Сообщение переживает перерисовку страницы.
+    csvMessage = `Добавлено: ${added}, пропущено: ${skipped}`;
+    if (added > 0) route();
+  }
+
+  let csvMessage = "";
+
+  /* ------------------------------------------------------------------ *
+   * Опыт, уровни, достижения и комбо
+   *
+   * Значения XP и условия достижений продублированы из src/stats.rs,
+   * чтобы обе версии считали прогресс одинаково.
+   * ------------------------------------------------------------------ */
+
+  const XP = {
+    reviewSuccess: 10,
+    reviewFail: 2,
+    newCard: 5,
+    grammarCorrect: 15,
+    grammarWrong: 3,
+  };
+
+  const LEVEL_FIRST = 100;
+  const LEVEL_STEP = 50;
+
+  function xpTotals() {
+    const successful = state.reviews.filter((review) => review.quality >= 3).length;
+    const failed = state.reviews.length - successful;
+    const grammarTotal = state.grammar.length;
+    const grammarCorrect = state.grammar.filter((answer) => answer.correct).length;
+    const cards = state.cards.length;
+
+    return {
+      successful,
+      failed,
+      cards,
+      grammarTotal,
+      grammarCorrect,
+      xp:
+        successful * XP.reviewSuccess +
+        failed * XP.reviewFail +
+        cards * XP.newCard +
+        grammarCorrect * XP.grammarCorrect +
+        (grammarTotal - grammarCorrect) * XP.grammarWrong,
+    };
+  }
+
+  function levelProgress(xp) {
+    let level = 1;
+    let needed = LEVEL_FIRST;
+    let spent = 0;
+    while (Math.max(0, xp) - spent >= needed) {
+      spent += needed;
+      level += 1;
+      needed += LEVEL_STEP;
+    }
+    const inLevel = Math.max(0, xp) - spent;
+    return { level, inLevel, needed, percent: Math.min(100, Math.round((inLevel / needed) * 100)) };
+  }
+
+  function levelTitle(level) {
+    if (level <= 1) return "Новичок";
+    if (level === 2) return "Ученик";
+    if (level <= 4) return "Практик";
+    if (level <= 6) return "Знаток";
+    if (level <= 9) return "Продвинутый";
+    return "Мастер";
+  }
+
+  const ACHIEVEMENTS = [
+    { id: "first-word", title: "Первые шаги", desc: "Добавить первую карточку", test: (i) => i.cards >= 1 },
+    { id: "ten-words", title: "Коллекционер", desc: "Собрать 10 карточек", test: (i) => i.cards >= 10 },
+    { id: "hundred-words", title: "Большой словарь", desc: "Собрать 100 карточек", test: (i) => i.cards >= 100 },
+    { id: "first-review", title: "Первое повторение", desc: "Ответить на первую карточку", test: (i) => i.reviews >= 1 },
+    { id: "fifty-reviews", title: "Полсотни повторений", desc: "Сделать 50 повторений", test: (i) => i.reviews >= 50 },
+    { id: "two-hundred-reviews", title: "Двести повторений", desc: "Сделать 200 повторений", test: (i) => i.reviews >= 200 },
+    {
+      id: "week-streak",
+      title: "Неделя подряд",
+      desc: "Заниматься 7 дней без перерыва",
+      test: (i) => i.currentStreak >= 7 || i.longestStreak >= 7,
+    },
+    {
+      id: "month-streak",
+      title: "Месяц дисциплины",
+      desc: "Заниматься 30 дней без перерыва",
+      test: (i) => i.currentStreak >= 30 || i.longestStreak >= 30,
+    },
+    {
+      id: "sharp-mind",
+      title: "Точность 90%",
+      desc: "Держать точность выше 90% (от 20 ответов)",
+      test: (i) => i.reviews >= 20 && i.accuracy >= 90,
+    },
+    { id: "combo-10", title: "Серия из десяти", desc: "10 правильных ответов подряд", test: (i) => i.bestCombo >= 10 },
+    {
+      id: "grammar-20",
+      title: "Грамматика",
+      desc: "20 правильных ответов в упражнениях",
+      test: (i) => i.grammarCorrect >= 20,
+    },
+    {
+      id: "weak-fixed",
+      title: "Из сложного в простое",
+      desc: "Тренировать 5 слабых слов и ответить на них верно",
+      test: (i) => i.weakFixed >= 5,
+    },
+  ];
+
+  /** Входные данные для проверки достижений (те же поля, что в Rust). */
+  function achievementInput() {
+    const totals = xpTotals();
+    const s = stats();
+    const weak = weakWords(100);
+    return {
+      cards: totals.cards,
+      reviews: s.totalReviews,
+      successful: s.successful,
+      currentStreak: s.current,
+      longestStreak: s.longest,
+      grammarCorrect: totals.grammarCorrect,
+      translations: s.translations,
+      bestCombo: Math.max(state.bestCombo || 0, sessionCombo),
+      weakFixed: weak.filter((word) => {
+        const card = state.cards.find((item) => normalize(item.front) === normalize(word.front));
+        return card && card.repetitions > 0;
+      }).length,
+      accuracy: s.accuracy,
+    };
+  }
+
+  /** Проверяет новые достижения и показывает всплывашку. */
+  function checkAchievements() {
+    const input = achievementInput();
+    const unlocked = state.unlocked || (state.unlocked = {});
+
+    ACHIEVEMENTS.forEach((item) => {
+      if (!unlocked[item.id] && item.test(input)) {
+        unlocked[item.id] = today();
+        toast(`🏅 Достижение: ${item.title}`, `+${XP.reviewSuccess} XP`, "good");
+      }
+    });
+    saveState();
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Всплывающие уведомления
+   * ------------------------------------------------------------------ */
+
+  function toast(title, subtitle = "", kind = "") {
+    let host = document.getElementById("toasts");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "toasts";
+      document.body.appendChild(host);
+    }
+
+    const item = document.createElement("div");
+    item.className = `toast ${kind}`;
+    item.innerHTML = `<div class="toast-title">${escapeHtml(title)}</div>
+      ${subtitle ? `<div class="toast-sub">${escapeHtml(subtitle)}</div>` : ""}`;
+    host.appendChild(item);
+
+    setTimeout(() => item.classList.add("hide"), 2200);
+    setTimeout(() => item.remove(), 2800);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Экзамен: смешанные вопросы EN→RU и RU→EN
+   * ------------------------------------------------------------------ */
+
+  const EXAM_LENGTH = 10;
+  const EXAM_SECONDS = 90;
+  const XP_EXAM_CORRECT = 8;
+  const XP_TYPING_CORRECT = 6;
+
+  /** Текущий экзамен живёт в памяти сессии. */
+  let exam = null;
+
+  function shuffle(items) {
+    const copy = [...items];
+    for (let i = copy.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  }
+
+  function buildExam() {
+    const pool = data.entries;
+    if (pool.length < 4) return [];
+
+    return Array.from({ length: EXAM_LENGTH }, (_, index) => {
+      const enToRu = index % 2 === 0;
+      const entry = pool[Math.floor(Math.random() * pool.length)];
+      const distractors = shuffle(pool.filter((item) => item.front !== entry.front)).slice(0, 3);
+      const options = shuffle([entry, ...distractors]);
+
+      return {
+        direction: enToRu ? "en2ru" : "ru2en",
+        prompt: enToRu ? entry.front : entry.back,
+        example: enToRu ? "" : entry.example || "",
+        word: entry.front,
+        translation: entry.back,
+        options: options.map((item) => (enToRu ? item.back : item.front)),
+        correct: options.findIndex((item) => item.front === entry.front),
+      };
+    });
+  }
+
+  function startExam() {
+    const questions = buildExam();
+    if (!questions.length) return;
+
+    exam = {
+      questions,
+      index: 0,
+      correct: 0,
+      answers: [],
+      left: EXAM_SECONDS,
+      timer: setInterval(() => {
+        exam.left -= 1;
+        const label = document.getElementById("exam-timer");
+        if (label) label.textContent = `⏱ ${exam.left} с`;
+        if (exam.left <= 0) finishExam();
+      }, 1000),
+    };
+    route();
+  }
+
+  function finishExam() {
+    if (!exam || exam.finished) return;
+    clearInterval(exam.timer);
+
+    const xp = exam.correct * XP_EXAM_CORRECT;
+    state.exams = state.exams || [];
+    state.exams.unshift({
+      at: today(),
+      total: exam.questions.length,
+      correct: exam.correct,
+      seconds: EXAM_SECONDS - exam.left,
+    });
+    state.exams = state.exams.slice(0, 20);
+    saveState();
+    checkAchievements();
+
+    exam = {
+      ...exam,
+      xp,
+      wrong: exam.answers.filter((item) => !item.ok),
+      finished: true,
+    };
+    if (xp > 0) toast(`Экзамен: +${xp} XP`, `${exam.correct} из ${EXAM_LENGTH}`, "good");
+    route();
+  }
+
+  function renderExam() {
+    if (!exam) {
+      const best = (state.exams || []).reduce((acc, item) => Math.max(acc, item.correct), 0);
+      return `
+        <section class="panel">
+          <h1>Экзамен</h1>
+          <p class="muted" style="margin-top:0">
+            ${EXAM_LENGTH} вопросов на ${EXAM_SECONDS} секунд: половина — перевод
+            с английского, половина — обратный. За верный ответ ${XP_EXAM_CORRECT} XP.
+          </p>
+          ${best > 0 ? `<p class="muted small">Лучший результат: ${best} из ${EXAM_LENGTH}</p>` : ""}
+          <button class="btn" data-exam="start">Начать экзамен</button>
+        </section>`;
+    }
+
+    if (exam.finished) {
+      const percent = Math.round((exam.correct / EXAM_LENGTH) * 100);
+      return `
+        <section class="panel" style="text-align:center">
+          <h1>Результат: ${exam.correct} из ${EXAM_LENGTH}</h1>
+          <p class="muted">Точность ${percent}% · ${exam.xp} XP · ${EXAM_SECONDS - exam.left} с</p>
+          <div class="actions" style="justify-content:center">
+            <button class="btn" data-exam="start">Ещё раз</button>
+            <a class="btn ghost" href="#/stats">В статистику</a>
+          </div>
+        </section>
+        ${
+          exam.wrong.length
+            ? `<section class="panel">
+                <h3>Разбор ошибок</h3>
+                <ul class="card-list">
+                  ${exam.wrong
+                    .map(
+                      (item) => `<li>
+                        <div class="card-front">${escapeHtml(item.word)}</div>
+                        <div class="card-back">${escapeHtml(item.translation)}</div>
+                        <span class="tag due">ваш ответ: ${escapeHtml(item.answer || "—")}</span>
+                      </li>`,
+                    )
+                    .join("")}
+                </ul>
+              </section>`
+            : '<section class="panel"><p class="muted">Без ошибок — идеально!</p></section>'
+        }`;
+    }
+
+    const question = exam.questions[exam.index];
+    const answered = exam.answers[exam.index];
+
+    return `
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between">
+          <span class="tag">Вопрос ${exam.index + 1} из ${EXAM_LENGTH}</span>
+          <span class="tag" id="exam-timer">⏱ ${exam.left} с</span>
+          <span class="tag ok">верно: ${exam.correct}</span>
+        </div>
+        <div class="progress" style="margin:12px 0 18px"><span style="width:${Math.round(
+          (exam.index / EXAM_LENGTH) * 100,
+        )}%"></span></div>
+
+        <p style="font-size:22px;font-weight:600;text-align:center">${escapeHtml(question.prompt)}</p>
+        ${
+          question.example
+            ? `<p class="muted small" style="text-align:center">${escapeHtml(question.example)}</p>`
+            : ""
+        }
+        ${
+          question.direction === "en2ru"
+            ? `<p style="text-align:center">${speakButton(question.word)}</p>`
+            : ""
+        }
+
+        <div class="options-grid">
+          ${question.options
+            .map((option, index) => {
+              let cls = "option";
+              if (answered) {
+                if (index === question.correct) cls += " correct";
+                else if (index === answered.chosen) cls += " wrong";
+              }
+              return `<button class="${cls}" data-exam-answer="${index}" ${
+                answered ? "disabled" : ""
+              }>${escapeHtml(option)}</button>`;
+            })
+            .join("")}
+        </div>
+
+        ${
+          answered
+            ? `<div class="notice ${answered.ok ? "ok" : "err"}">
+                ${
+                  answered.ok
+                    ? `Верно! +${XP_EXAM_CORRECT} XP`
+                    : `Неверно. Правильно: ${escapeHtml(question.options[question.correct])}`
+                }
+              </div>
+              <button class="btn" data-exam="next">${
+                exam.index + 1 === EXAM_LENGTH ? "Итоги" : "Следующий вопрос"
+              }</button>`
+            : ""
+        }
+      </section>`;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Тренажёр письма: показан перевод, слово нужно напечатать
+   * ------------------------------------------------------------------ */
+
+  let typing = null;
+
+  function startTyping() {
+    const pool = state.cards.filter((card) => normalize(card.front).length <= 24);
+    if (pool.length < 3) return;
+    typing = { cards: shuffle(pool).slice(0, Math.min(10, pool.length)), index: 0, correct: 0 };
+    route();
+  }
+
+  function checkTyping(value) {
+    if (!typing) return;
+    const card = typing.cards[typing.index];
+    // «to boil» и «boil» считаем одним ответом, регистр не важен.
+    const clean = (text) => normalize(text).replace(/^to\s+/, "");
+    const ok = clean(value) === clean(card.front);
+
+    typing.correct += ok ? 1 : 0;
+    typing.last = { ok, value, card };
+    if (ok) toast(`+${XP_TYPING_CORRECT} XP`, card.front, "good");
+    saveState();
+    route();
+  }
+
+  function renderTyping() {
+    if (!typing) {
+      return `
+        <section class="panel">
+          <h1>Тренажёр письма</h1>
+          <p class="muted" style="margin-top:0">
+            Показываем перевод — напишите слово по-английски. Регистр не важен,
+            «to» можно опустить. За верный ответ ${XP_TYPING_CORRECT} XP.
+          </p>
+          ${
+            state.cards.length < 3
+              ? '<p class="muted">Сначала добавьте хотя бы 3 карточки.</p>'
+              : '<button class="btn" data-typing="start">Начать тренировку</button>'
+          }
+        </section>`;
+    }
+
+    const card = typing.cards[typing.index];
+    const last = typing.last;
+
+    if (!last) {
+      return `
+        <section class="panel" style="text-align:center">
+          <div class="actions" style="justify-content:space-between">
+            <span class="tag">Слово ${typing.index + 1} из ${typing.cards.length}</span>
+            <span class="tag ok">верно: ${typing.correct}</span>
+          </div>
+          <p style="font-size:26px;font-weight:600;margin:26px 0 4px">${escapeHtml(card.back)}</p>
+          ${card.example ? `<p class="muted small">${escapeHtml(card.example)}</p>` : ""}
+          <form id="typing-form" style="max-width:320px;margin:18px auto 0">
+            <input type="text" name="answer" autocomplete="off" autocapitalize="off"
+              placeholder="введите слово" required autofocus />
+            <button class="btn" type="submit" style="margin-top:10px">Проверить</button>
+          </form>
+          <p style="margin-top:10px">${speakButton(card.front)}</p>
+        </section>`;
+    }
+
+    return `
+      <section class="panel" style="text-align:center">
+        <div class="notice ${last.ok ? "ok" : "err"}">
+          ${last.ok ? "Верно!" : `Неверно. Правильный ответ: ${escapeHtml(last.card.front)}`}
+        </div>
+        <p style="font-size:26px;font-weight:600;margin:18px 0 4px">${escapeHtml(card.back)}</p>
+        <div class="actions" style="justify-content:center">
+          <button class="btn" data-typing="next">${
+            typing.index + 1 === typing.cards.length ? "Итоги" : "Следующее слово"
+          }</button>
+          <a class="btn ghost" href="#/typing" data-typing="restart">Заново</a>
+        </div>
+      </section>`;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Защита стрика: достижения дают «заморозки» пропущенного дня
+   * ------------------------------------------------------------------ */
+
+  const FREEZES_PER_TIER = 4;
+  const MAX_FREEZES = 3;
+
+  function earnedFreezes() {
+    const unlocked = Object.keys(state.unlocked || {}).length;
+    return Math.min(MAX_FREEZES, Math.floor(unlocked / FREEZES_PER_TIER));
+  }
+
+  /** Сколько защит доступно прямо сейчас: вычисляется, а не кэшируется. */
+  function freezes() {
+    return Math.max(0, earnedFreezes() - (state.healed || []).length);
+  }
+
+  /**
+   * Тратит одну защиту, если пропущен ровно один день подряд.
+   * Возвращает дату, которую удалось «закрыть», либо null.
+   */
+  function applyFreezeIfNeeded() {
+    if (freezes() <= 0) return null;
+
+    const days = new Set(state.reviews.map((review) => review.day));
+    const yesterday = addDays(today(), -1);
+    const beforeYesterday = addDays(today(), -2);
+
+    const gap = !days.has(yesterday) && days.has(beforeYesterday);
+    if (!gap) return null;
+
+    state.healed = [...(state.healed || []), yesterday];
+    saveState();
+    return yesterday;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Напоминания о повторениях (Notification API)
+   * ------------------------------------------------------------------ */
+
+  const REMINDER_TIMES = ["18:00", "19:00", "20:00", "21:00"];
+
+  function reminders() {
+    return state.reminders || { enabled: false, time: "20:00" };
+  }
+
+  async function toggleReminders() {
+    if (!("Notification" in window)) {
+      toast("Браузер не поддерживает уведомления", "", "bad");
+      return;
+    }
+
+    const current = reminders();
+    if (current.enabled) {
+      state.reminders = { ...current, enabled: false };
+      saveState();
+      renderProfileBox();
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      toast("Разрешение не выдано", "Уведомления отключены в браузере", "bad");
+      return;
+    }
+
+    state.reminders = { ...current, enabled: true };
+    saveState();
+    scheduleReminder();
+    renderProfileBox();
+    toast("Напоминания включены", `Будем напоминать в ${state.reminders.time}`, "good");
+  }
+
+  function setReminderTime(value) {
+    state.reminders = { ...reminders(), time: value };
+    saveState();
+    scheduleReminder();
+  }
+
+  /** Планирует одно напоминание; после срабатывания — следующее на завтра. */
+  function scheduleReminder() {
+    const settings = reminders();
+    if (!settings.enabled) return;
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+    const [hours, minutes] = settings.time.split(":").map(Number);
+    const target = new Date();
+    target.setHours(hours, minutes, 0, 0);
+
+    let delay = target.getTime() - Date.now();
+    if (delay <= 0) delay += 86_400_000;
+    setTimeout(() => {
+      const due = dueCards().length;
+      if (due > 0) {
+        new Notification("LinguaRust", {
+          body: `К повторению ${due} карточек. Пять минут — и день закрыт.`,
+          icon: "icon.svg",
+          tag: "linguarust-review",
+        });
+      }
+      scheduleReminder();
+    }, delay);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Прогноз: симуляция SM-2 на будущие дни
+   * ------------------------------------------------------------------ */
+
+  /**
+   * Предсказывает прогресс, если отвечать «нормально» (оценка 4).
+   * Работает на копии карточек: реальные данные не меняются.
+   */
+  function forecast(days = 14) {
+    const simulated = state.cards.map((card) => ({ ...card }));
+    const points = [];
+    let totalReviews = 0;
+
+    for (let offset = 0; offset <= days; offset += 1) {
+      const day = addDays(today(), offset);
+
+      if (offset > 0) {
+        simulated.forEach((card) => {
+          if (card.dueDate && card.dueDate <= day) {
+            Object.assign(card, reviewCard(card, 4));
+            totalReviews += 1;
+          }
+        });
+      }
+
+      points.push({
+        day,
+        reviews: totalReviews,
+        learned: simulated.filter((card) => card.repetitions >= 3).length,
+        mastered: simulated.filter((card) => card.repetitions >= 5).length,
+      });
+    }
+
+    return points;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Представления
+   * ------------------------------------------------------------------ */
+
+  function renderWelcome() {
+    return `
+      <section class="panel" style="max-width:560px;margin:40px auto;text-align:center">
+        <h1 style="margin-bottom:6px">Привет! Это LinguaRust</h1>
+        <p class="muted">
+          Учите английский по карточкам с интервальным повторением, читайте тексты
+          с переводом по клику и тренируйте грамматику.
+        </p>
+        <form id="welcome-form">
+          <label class="field" style="text-align:left">
+            <span>Как вас зовут?</span>
+            <input type="text" name="name" maxlength="40" placeholder="Например, Алекс" required autofocus />
+          </label>
+          <button class="btn" type="submit">Начать обучение</button>
+        </form>
+        <p class="muted small" style="margin-top:22px;margin-bottom:0">
+          Регистрации и пароля нет: прогресс хранится только в вашем браузере.<br />
+          Очистка данных сайта удалит карточки и статистику.
+        </p>
+      </section>`;
+  }
+
+  function renderHome() {
+    const s = stats();
+    const days = [];
+    for (let i = 13; i >= 0; i -= 1) days.push(addDays(today(), -i));
+    const max = Math.max(1, ...days.map((day) => s.byDay.get(day) || 0));
+    const wotd = wordOfTheDay();
+    const wotdInCards = wotd && state.cards.some((card) => normalize(card.front) === normalize(wotd.front));
+
+    const wordCard = wotd
+      ? `<section class="panel">
+          <div class="actions" style="justify-content:space-between;align-items:flex-start">
+            <div>
+              <span class="tag">Слово дня</span>
+              <h2 style="margin:8px 0 4px">${escapeHtml(wotd.front)} ${speakButton(wotd.front)}</h2>
+              <p style="margin:0">${escapeHtml(wotd.back)}</p>
+              ${wotd.example ? `<p class="muted small" style="margin:6px 0 0">${escapeHtml(wotd.example)}</p>` : ""}
+            </div>
+            ${
+              wotdInCards
+                ? '<span class="tag ok">уже в карточках</span>'
+                : `<button class="btn small" data-add-front="${escapeHtml(wotd.front)}">В карточки</button>`
+            }
+          </div>
+        </section>`
+      : "";
+
+    const totals = xpTotals();
+    const level = levelProgress(totals.xp);
+    const goal = state.goal || 20;
+    const goalPercent = Math.min(100, Math.round((s.todayReviews / goal) * 100));
+    const goalDone = s.todayReviews >= goal;
+
+    const levelPanel = `
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between;align-items:flex-start">
+          <div>
+            <span class="tag">Уровень ${level.level} · ${levelTitle(level.level)}</span>
+            <h2 style="margin:8px 0 4px">${totals.xp} XP</h2>
+            <p class="muted small" style="margin:0">до следующего уровня: ${level.needed} − ${level.inLevel} XP</p>
+          </div>
+          <div style="text-align:right">
+            <span class="tag ${goalDone ? "ok" : ""}">${goalDone ? "Цель дня выполнена" : `Цель дня: ${goal}`}</span>
+            <div class="actions" style="justify-content:flex-end;margin-top:8px">
+              ${[10, 20, 50].map((value) => `<button class="btn small ${goal === value ? "" : "ghost"}" data-goal="${value}">${value}</button>`).join("")}
+            </div>
+          </div>
+        </div>
+        <div class="progress" style="margin-top:12px"><span style="width:${level.percent}%"></span></div>
+        <div class="progress" style="margin-top:6px"><span style="width:${goalPercent}%;background:var(--good)"></span></div>
+      </section>`;
+
+    return `
+      <section class="panel">
+        <h1 style="margin-bottom:4px">Привет, ${escapeHtml(state.profile.name)}!</h1>
+        <p class="muted" style="margin-top:0">
+          ${s.due > 0
+            ? `Сегодня к повторению — ${s.due} ${plural(s.due, ["карточка", "карточки", "карточек"])}. Повторения важнее новых слов: так лексика остаётся в памяти.`
+            : "На сегодня всё повторено. Можно добавить новые слова или почитать текст."}
+        </p>
+        <div class="actions">
+          <a class="btn" href="#/cards">${s.due > 0 ? `Повторить ${s.due}` : "Открыть карточки"}</a>
+          <a class="btn ghost" href="#/reading">Читать</a>
+          <a class="btn ghost" href="#/grammar">Грамматика</a>
+          <a class="btn ghost" href="#/exam">Экзамен</a>
+          <a class="btn ghost" href="#/typing">Тренажёр письма</a>
+        </div>
+      </section>
+
+      ${levelPanel}
+
+      ${wordCard}
+
+      <section class="grid cols-4">
+        <div class="metric"><div class="value accent">${s.current}</div><div class="label">дней подряд</div></div>
+        <div class="metric"><div class="value">${s.accuracy.toFixed(1)}%</div><div class="label">точность ответов</div></div>
+        <div class="metric"><div class="value">${s.learned}</div><div class="label">слов в работе</div></div>
+        <div class="metric"><div class="value">${s.todayReviews}</div><div class="label">повторений сегодня</div></div>
+      </section>
+
+      <section class="panel" style="margin-top:20px">
+        <h3>Активность за 14 дней</h3>
+        <div class="chart">
+          ${days
+            .map((day) => {
+              const count = s.byDay.get(day) || 0;
+              const percent = Math.round((count / max) * 100);
+              return `<div class="col" title="${day}: ${count}">
+                  <div class="bar" style="height:${percent}%"></div>
+                  <div class="label">${day.slice(8, 10)}.${day.slice(5, 7)}</div>
+                </div>`;
+            })
+            .join("")}
+        </div>
+        <p class="muted small">Высота столбика — число повторений за день.</p>
+      </section>`;
+  }
+
+  /** Активный фильтр списка карточек: все / к повторению / новые / в работе. */
+  let cardFilter = "all";
+
+  /** Режим тренировки слабых слов (список повторений строится по ошибкам). */
+  let weakOnly = false;
+
+  const FILTERS = [
+    { id: "all", label: "Все" },
+    { id: "due", label: "К повторению" },
+    { id: "new", label: "Новые" },
+    { id: "learning", label: "В работе" },
+  ];
+
+  /** Блок повторения отдельно: обновляется без перерисовки всей страницы. */
+  function renderReviewBlock() {
+    const due = dueCards();
+    const card = due[0];
+    const combo = sessionCombo > 1 ? `<div class="combo">🔥 ${sessionCombo} подряд</div>` : "";
+
+    if (!card) {
+      return `
+        <section class="panel" style="text-align:center">
+          <h2>На сегодня повторений нет 🎉</h2>
+          <p class="muted">Добавьте новые слова — они попадут в очередь на завтра.</p>
+          <a class="btn" href="#add">Добавить слово</a>
+        </section>`;
+    }
+
+    return `
+      ${weakOnly ? '<div class="notice">Режим тренировки слабых слов: <button class="btn ghost small" data-weak="off">выйти</button></div>' : ""}
+      <section class="panel review-card">
+        <p class="muted small" style="margin:0">Карточек к повторению: ${due.length}</p>
+        ${combo}
+        <div class="word">${escapeHtml(card.front)} ${speakButton(card.front)}</div>
+        <details class="reveal">
+          <summary class="btn ghost">Показать перевод</summary>
+          <div class="answer">${escapeHtml(card.back)}</div>
+          ${card.example ? `<div class="example">${escapeHtml(card.example)}</div>` : ""}
+        </details>
+        <div class="quality-grid">
+          ${REVIEW_QUALITIES.map(
+            (item) =>
+              `<button class="btn ${item.css}" data-grade="${item.value}" data-card="${card.id}">${item.label}</button>`,
+          ).join("")}
+        </div>
+        <p class="muted small" style="margin-top:14px;margin-bottom:0">
+          Пробел — показать ответ, клавиши 1–4 — оценка по порядку кнопок, Esc — пропустить.
+        </p>
+      </section>`;
+  }
+
+  /** Точечное обновление после оценки: список и шапка не перерисовываются. */
+  function refreshReviewFlow() {
+    const host = document.getElementById("review-host");
+    if (!host) return;
+    host.innerHTML = renderReviewBlock();
+    renderProfileBox();
+  }
+
+  function renderCards() {
+    const due = dueCards();
+    const s = stats();
+    const card = due[0];
+
+    const filtered = state.cards.filter((item) => {
+      if (cardFilter === "due") return due.some((entry) => entry.id === item.id);
+      if (cardFilter === "new") return item.repetitions === 0;
+      if (cardFilter === "learning") return item.repetitions > 0;
+      return true;
+    });
+
+    const rows = [...filtered]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((card) => {
+        const percent = mastery(card.repetitions);
+        const isDue = card.dueDate && card.dueDate <= today();
+        return `<li>
+            <div class="card-front">${escapeHtml(card.front)} ${speakButton(card.front)}</div>
+            <div class="card-back">${escapeHtml(card.back)}</div>
+            <div class="mastery" title="освоено на ${percent}%"><span style="width:${percent}%"></span></div>
+            <span class="tag ${isDue ? "due" : ""}">${isDue ? "к повторению" : escapeHtml(card.dueDate)}</span>
+            <span class="tag">${formatInterval(card.intervalDays)}</span>
+            <button class="btn ghost small" data-delete="${card.id}">Удалить</button>
+          </li>`;
+      })
+      .join("");
+
+    return `
+      <div id="review-host">${renderReviewBlock()}</div>
+
+      <section class="panel" id="add">
+        <h3>Новое слово</h3>
+        <form id="add-form">
+          <div class="grid cols-3">
+            <label class="field"><span>Слово (EN)</span>
+              <input type="text" name="front" maxlength="100" placeholder="deadline" required /></label>
+            <label class="field"><span>Перевод (RU)</span>
+              <input type="text" name="back" maxlength="200" placeholder="срок сдачи" required /></label>
+            <label class="field"><span>Пример</span>
+              <input type="text" name="example" maxlength="300" placeholder="The deadline is Friday." /></label>
+          </div>
+          <button class="btn" type="submit">Добавить карточку</button>
+        </form>
+      </section>
+
+      <details class="panel" id="csv-panel">
+        <summary><strong>Импорт и экспорт CSV</strong></summary>
+        <div class="actions" style="margin:12px 0">
+          <button class="btn ghost small" data-csv="export">Скачать карточки в CSV</button>
+          <span class="muted small">Формат: <code>слово;перевод;пример</code> — по строке на карточку</span>
+        </div>
+        <label class="field">
+          <span>Вставьте список слов</span>
+          <textarea id="csv-input" rows="5" placeholder="deadline;срок сдачи;The deadline is Friday.&#10;profit;прибыль;They made a good profit."></textarea>
+        </label>
+        <div class="actions">
+          <button class="btn small" data-csv="import">Импортировать</button>
+          <span class="muted small" id="csv-result">${escapeHtml(csvMessage)}</span>
+        </div>
+      </details>
+
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between">
+          <h3 style="margin:0">Карточки (${s.totalCards})</h3>
+          <div class="actions">
+            ${FILTERS.map(
+              (item) =>
+                `<button class="btn small ${cardFilter === item.id ? "" : "ghost"}" data-filter="${item.id}">${item.label}</button>`,
+            ).join("")}
+          </div>
+        </div>
+        ${rows ? `<ul class="card-list">${rows}</ul>` : '<p class="muted">В этом фильтре пусто. Смените фильтр или добавьте новое слово.</p>'}
+      </section>`;
+  }
+
+  function renderDictionary() {
+    const wotd = wordOfTheDay();
+    const inCards = (front) => state.cards.some((card) => normalize(card.front) === normalize(front));
+
+    const card = wotd
+      ? `<section class="panel" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px">
+            <span class="tag">Слово дня</span>
+            <h2 style="margin:8px 0 4px">${escapeHtml(wotd.front)}</h2>
+            <p style="margin:0;font-size:18px">${escapeHtml(wotd.back)}</p>
+            ${wotd.example ? `<p class="muted small" style="margin:6px 0 0">${escapeHtml(wotd.example)}</p>` : ""}
+          </div>
+          ${
+            inCards(wotd.front)
+              ? '<span class="tag ok">уже в карточках</span>'
+              : `<button class="btn" data-add-front="${escapeHtml(wotd.front)}">В карточки</button>`
+          }
+        </section>`
+      : "";
+
+    const rows = data.entries
+      .map((entry) => {
+        const known = inCards(entry.front);
+        return `<li data-front="${escapeHtml(entry.front.toLowerCase())}" data-back="${escapeHtml(entry.back.toLowerCase())}">
+            <div class="card-front">${escapeHtml(entry.front)} ${speakButton(entry.front)}</div>
+            <div class="card-back">
+              ${escapeHtml(entry.back)}
+              ${entry.example ? `<div class="muted small">${escapeHtml(entry.example)}</div>` : ""}
+            </div>
+            ${
+              known
+                ? '<span class="tag ok">в карточках</span>'
+                : `<button class="btn ghost small" data-add-front="${escapeHtml(entry.front)}">В карточки</button>`
+            }
+          </li>`;
+      })
+      .join("");
+
+    return `
+      ${card}
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between">
+          <h1 style="margin:0">Словарь</h1>
+          <span class="tag">слов: ${data.entries.length}</span>
+        </div>
+        <div class="actions">
+          <input type="text" id="dict-search" placeholder="Поиск по английскому или русскому…"
+                 style="flex:1;min-width:220px" autocomplete="off" />
+          <span class="muted small" id="dict-count">${data.entries.length}</span>
+        </div>
+        <ul class="card-list" id="dict-list">${rows}</ul>
+      </section>`;
+  }
+
+  function initDictionary() {
+    const search = document.getElementById("dict-search");
+    if (!search) return;
+
+    const apply = () => {
+      const needle = search.value.trim().toLowerCase();
+      let visible = 0;
+      document.querySelectorAll("#dict-list li").forEach((item) => {
+        const match =
+          !needle ||
+          item.dataset.front.includes(needle) ||
+          item.dataset.back.includes(needle);
+        item.hidden = !match;
+        if (match) visible += 1;
+      });
+      document.getElementById("dict-count").textContent = String(visible);
+    };
+
+    search.addEventListener("input", apply);
+    search.focus();
+  }
+
+  function renderReading() {
+    const cards = data.texts
+      .map(
+        (text) => `
+        <section class="panel" style="margin-bottom:0">
+          <div class="actions" style="justify-content:space-between">
+            <h3 style="margin:0">${escapeHtml(text.title)}</h3>
+            <span class="tag">${escapeHtml(text.level)}</span>
+          </div>
+          <p class="muted small">${escapeHtml(text.summary)}</p>
+          <p class="muted small">${text.content.trim().split(/\s+/).length} слов</p>
+          <a class="btn small" href="#/reading/${encodeURIComponent(text.slug)}">Читать</a>
+        </section>`,
+      )
+      .join("");
+
+    return `
+      <section class="panel">
+        <h1>Тексты для чтения</h1>
+        <p class="muted" style="margin-top:0">Нажмите на любое слово — появится перевод и кнопка «В карточки».</p>
+      </section>
+      <div class="grid cols-2">${cards}</div>`;
+  }
+
+  function renderReadingText(slug) {
+    const text = data.texts.find((item) => item.slug === slug);
+    if (!text) return '<section class="panel"><h1>Текст не найден</h1><p><a href="#/reading">К списку текстов</a></p></section>';
+
+    const paragraphs = text.content
+      .split(/\n\s*\n/)
+      .map((paragraph) => `<p>${escapeHtml(paragraph.trim())}</p>`)
+      .join("");
+
+    const others = data.texts
+      .filter((item) => item.slug !== slug)
+      .map((item) => `<a class="btn ghost small" href="#/reading/${encodeURIComponent(item.slug)}">${escapeHtml(item.title)} · ${escapeHtml(item.level)}</a>`)
+      .join("");
+
+    return `
+      <article class="panel">
+        <div class="actions" style="justify-content:space-between">
+          <h1 style="margin:0">${escapeHtml(text.title)}</h1>
+          <div><span class="tag">${escapeHtml(text.level)}</span>
+            <span class="tag">${text.content.trim().split(/\s+/).length} слов</span></div>
+        </div>
+        <p class="muted small">${escapeHtml(text.summary)}</p>
+        <div class="reader" id="reader">${paragraphs}</div>
+        <p class="muted small">Слова, которые уже есть в карточках, подчёркиваются пунктиром.</p>
+      </article>
+      ${others ? `<section class="panel"><h3>Другие тексты</h3><div class="actions">${others}</div></section>` : ""}`;
+  }
+
+  function renderGrammar() {
+    const index = Math.max(0, Math.min(data.exercises.length - 1, Number(location.hash.split("=")[1] || 0)));
+    const exercise = data.exercises[index];
+    if (!exercise) return '<section class="panel"><p class="muted">Упражнения не загружены.</p></section>';
+
+    return `
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between">
+          <h1 style="margin:0">Грамматика</h1>
+          <span class="tag">Упражнение ${index + 1} из ${data.exercises.length}</span>
+        </div>
+        <p class="muted small" style="margin-bottom:18px">Тема: ${escapeHtml(exercise.topic)}</p>
+        <p style="font-size:20px;font-weight:600">${escapeHtml(exercise.prompt)}</p>
+        <div id="grammar-options">
+          ${exercise.options
+            .map(
+              (option, i) => `<label class="option">
+                <input type="radio" name="answer" value="${i}" /> ${escapeHtml(option)}
+              </label>`,
+            )
+            .join("")}
+        </div>
+        <div class="actions">
+          <button class="btn" id="grammar-check">Проверить</button>
+          <a class="btn ghost" href="#/grammar=${index + 1}">Следующее упражнение →</a>
+        </div>
+        <div id="grammar-feedback"></div>
+      </section>`;
+  }
+
+  function renderStats() {
+    const s = stats();
+    const buckets = [
+      { label: "Новые", count: s.fresh },
+      { label: "Изучаются", count: state.cards.filter((c) => c.repetitions > 0 && c.repetitions <= 2).length },
+      { label: "Знакомые", count: state.cards.filter((c) => c.repetitions > 3 && c.repetitions <= 4).length },
+      { label: "Освоенные", count: state.cards.filter((c) => c.repetitions >= 5).length },
+    ];
+    const total = Math.max(1, s.totalCards);
+
+    const rows = [...s.byDay.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .slice(0, 14)
+      .map(([day, reviews]) => {
+        const successful = state.reviews.filter((review) => review.day === day && review.quality >= 3).length;
+        return `<tr><td>${day}</td><td>${reviews}</td><td>${successful}</td>
+          <td style="text-align:right">${Math.round(accuracy(reviews, successful))}%</td></tr>`;
+      })
+      .join("");
+
+    const freezeNote =
+      s.healed.length > 0
+        ? `<p class="muted small" style="margin-top:8px">❄️ Защита стрика использована ${s.healed.length} ${plural(
+            s.healed.length,
+            ["раз", "раза", "раз"],
+          )}: ${s.healed
+            .slice(-3)
+            .map((value) => value.slice(5))
+            .join(", ")}. Каждые ${FREEZES_PER_TIER} достижения дают одну защиту (максимум ${MAX_FREEZES}).</p>`
+        : `<p class="muted small" style="margin-top:8px">❄️ Защита стрика: ${s.freezes} из ${MAX_FREEZES}. Каждые ${FREEZES_PER_TIER} достижения дают одну защиту — она закрывает один пропущенный день.</p>`;
+
+    const weak = weakWords(8);
+    const weakPanel = `
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between">
+          <h3 style="margin:0">Слабые слова</h3>
+          ${weak.length ? '<button class="btn small" data-weak="on">Тренировать</button>' : ""}
+        </div>
+        ${
+          weak.length
+            ? `<ul class="card-list">
+                ${weak
+                  .map(
+                    (word) => `<li>
+                      <div class="card-front">${escapeHtml(word.front)} ${speakButton(word.front)}</div>
+                      <div class="card-back">${escapeHtml(word.back)}</div>
+                      <span class="tag due">ошибок: ${word.errors} из ${word.attempts}</span>
+                      <div class="mastery" title="освоено на ${word.mastery}%"><span style="width:${word.mastery}%"></span></div>
+                    </li>`,
+                  )
+                  .join("")}
+              </ul>
+              <p class="muted small">Слова, которые вы забывали чаще всего. Кнопка «Тренировать» повторяет их вне очереди.</p>`
+            : '<p class="muted">Пока нет слов, которые вы забывали бы слишком часто. Так держать!</p>'
+        }
+      </section>`;
+
+    const points = forecast(14);
+    const maxLearned = Math.max(1, ...points.map((point) => point.learned));
+    const forecastPanel = `
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between">
+          <h3 style="margin:0">Прогноз на 14 дней</h3>
+          <span class="tag">если отвечать «нормально»</span>
+        </div>
+        <div class="chart">
+          ${points
+            .map((point) => {
+              const percent = Math.round((point.learned / maxLearned) * 100);
+              return `<div class="col" title="${point.day}: в работе ${point.learned}, повторений ${point.reviews}">
+                  <div class="bar" style="height:${percent}%"></div>
+                  <div class="label">${point.day.slice(8, 10)}.${point.day.slice(5, 7)}</div>
+                </div>`;
+            })
+            .join("")}
+        </div>
+        <p class="muted small">
+          Через 14 дней в работе будет ${points.at(-1).learned} ${plural(points.at(-1).learned, ["слово", "слова", "слов"])}
+          (сейчас ${points[0].learned}), освоено — ${points.at(-1).mastered}.
+          Всего понадобится около ${points.at(-1).reviews} ${plural(points.at(-1).reviews, ["повторения", "повторений", "повторений"])}.
+        </p>
+      </section>`;
+
+    const unlocked = state.unlocked || {};
+    const achievements = ACHIEVEMENTS.map((item) => {
+      const achieved = Boolean(unlocked[item.id]);
+      return `<div class="metric" style="border-color:${achieved ? "var(--good)" : "var(--border)"}">
+          <div class="label" style="color:${achieved ? "var(--good)" : "var(--muted)"}">
+            ${achieved ? "✓" : "○"} ${escapeHtml(item.title)}
+          </div>
+          <div class="small muted">${escapeHtml(item.desc)}</div>
+        </div>`;
+    }).join("");
+
+    const totals = xpTotals();
+    const level = levelProgress(totals.xp);
+    const earned = ACHIEVEMENTS.filter((item) => unlocked[item.id]).length;
+
+    const achievementsPanel = `
+      <section class="panel">
+        <div class="actions" style="justify-content:space-between">
+          <h3 style="margin:0">Достижения</h3>
+          <span class="tag">${earned} из ${ACHIEVEMENTS.length} · уровень ${level.level} ${levelTitle(level.level)}</span>
+        </div>
+        <div class="progress" style="margin:10px 0 16px"><span style="width:${level.percent}%"></span></div>
+        <div class="grid cols-3">${achievements}</div>
+        ${freezeNote}
+      </section>`;
+
+    return `
+      <section class="panel">
+        <h1>Статистика</h1>
+        <p class="muted" style="margin-top:0">Стрики, точность и состояние карточек.</p>
+      </section>
+
+      <section class="grid cols-4">
+        <div class="metric"><div class="value accent">${s.current}</div><div class="label">текущий стрик</div></div>
+        <div class="metric"><div class="value">${s.longest}</div><div class="label">рекорд стрика</div></div>
+        <div class="metric"><div class="value">${s.accuracy.toFixed(1)}%</div><div class="label">точность (${s.successful} из ${s.totalReviews})</div></div>
+        <div class="metric"><div class="value">${s.perDay.toFixed(1)}</div><div class="label">повторений в день</div></div>
+      </section>
+
+      <section class="grid cols-2" style="margin-top:20px">
+        <div class="panel">
+          <h3>Карточки</h3>
+          <table><tbody>
+            <tr><td>Всего</td><td style="text-align:right">${s.totalCards}</td></tr>
+            <tr><td>Новые</td><td style="text-align:right">${s.fresh}</td></tr>
+            <tr><td>В работе</td><td style="text-align:right">${s.learned}</td></tr>
+            <tr><td>К повторению</td><td style="text-align:right">${s.due}</td></tr>
+            <tr><td>Активных дней</td><td style="text-align:right">${s.daysActive}</td></tr>
+          </tbody></table>
+        </div>
+        <div class="panel">
+          <h3>Стадии освоения</h3>
+          ${buckets
+            .map((bucket) => {
+              const percent = Math.round((bucket.count / total) * 100);
+              return `<div style="margin-bottom:12px">
+                <div class="actions" style="justify-content:space-between">
+                  <span>${bucket.label}</span>
+                  <span class="muted small">${bucket.count} · ${percent}%</span>
+                </div>
+                <div class="progress"><span style="width:${percent}%"></span></div>
+              </div>`;
+            })
+            .join("")}
+        </div>
+      </section>
+
+      <section class="panel">
+        <h3>Последние дни активности</h3>
+        ${rows
+          ? `<table><thead><tr><th>Дата</th><th>Повторений</th><th>Успешных</th><th style="text-align:right">Точность</th></tr></thead><tbody>${rows}</tbody></table>`
+          : '<p class="muted">Пока нет повторений — начните с карточек.</p>'}
+      </section>
+
+      ${weakPanel}
+
+      ${forecastPanel}
+
+      ${achievementsPanel}`;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Роутер
+   * ------------------------------------------------------------------ */
+
+  const routes = [
+    { pattern: /^#?\/?$/, view: "home" },
+    { pattern: /^#\/cards$/, view: "cards" },
+    { pattern: /^#\/dictionary$/, view: "dictionary" },
+    { pattern: /^#\/reading$/, view: "reading" },
+    { pattern: /^#\/reading\/(.+)$/, view: "readingText" },
+    { pattern: /^#\/grammar(?:=(\d+))?$/, view: "grammar" },
+    { pattern: /^#\/exam$/, view: "exam" },
+    { pattern: /^#\/typing$/, view: "typing" },
+    { pattern: /^#\/stats$/, view: "stats" },
+  ];
+
+  function currentRoute() {
+    const hash = location.hash || "#/";
+    for (const route of routes) {
+      const match = hash.match(route.pattern);
+      if (match) return { view: route.view, param: match[1] ? decodeURIComponent(match[1]) : null };
+    }
+    return { view: "home", param: null };
+  }
+
+  function renderProfileBox() {
+    if (!state.profile) {
+      profileBox.innerHTML = '<a class="btn small" href="#/">Начать</a>';
+      return;
+    }
+    const s = stats();
+    const currentReminder = reminders();
+    profileBox.innerHTML = `
+      <button class="btn ghost small" id="theme" title="Сменить тему" aria-label="Сменить тему">
+        ${currentTheme() === "dark" ? "☀️" : "🌙"}
+      </button>
+      <span class="badge">🔥 ${s.current} дн.</span>
+      ${s.freezes > 0 ? `<span class="badge" title="Защита стрика: достижения">❄️ ${s.freezes}</span>` : ""}
+      ${s.due > 0 ? `<span class="badge hot">${s.due} к повторению</span>` : ""}
+      <button class="btn ghost small" id="reminder" title="Напоминания о повторениях">
+        ${currentReminder.enabled ? "🔔" : "🔕"}
+      </button>
+      <button class="btn ghost small" id="export" title="Скачать резервную копию">Экспорт</button>
+      <button class="btn ghost small" id="import" title="Загрузить резервную копию">Импорт</button>
+      <button class="btn ghost small" id="reset">Сбросить</button>
+      <input type="file" id="import-file" accept="application/json" hidden />
+      ${
+        currentReminder.enabled
+          ? `<select class="btn ghost small" id="reminder-time" title="Время напоминания">
+              ${REMINDER_TIMES.map(
+                (time) =>
+                  `<option value="${time}" ${time === currentReminder.time ? "selected" : ""}>${time}</option>`,
+              ).join("")}
+            </select>`
+          : ""
+      }`;
+
+    document.getElementById("reminder").addEventListener("click", toggleReminders);
+    document.getElementById("reminder-time")?.addEventListener("change", (event) =>
+      setReminderTime(event.target.value),
+    );
+    document.getElementById("export").addEventListener("click", exportProgress);
+    document.getElementById("import").addEventListener("click", () =>
+      document.getElementById("import-file").click(),
+    );
+    document.getElementById("import-file").addEventListener("change", importProgress);
+    document.getElementById("reset").addEventListener("click", () => {
+      if (confirm("Удалить все карточки и статистику этого браузера?")) {
+        localStorage.removeItem(STORAGE_KEY);
+        state = emptyState();
+        route();
+      }
+    });
+  }
+
+  /** Скачивает резервную копию прогресса в JSON. */
+  function exportProgress() {
+    const payload = JSON.stringify({ ...state, exportedAt: new Date().toISOString() }, null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `linguarust-${today()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** Загружает резервную копию, предварительно проверяя структуру. */
+  async function importProgress(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const parsed = JSON.parse(await file.text());
+      if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.cards)) {
+        throw new Error("в файле нет списка карточек");
+      }
+      if (!confirm(`Заменить текущий прогресс (${state.cards.length} карточек) данными из файла (${parsed.cards.length})?`)) {
+        event.target.value = "";
+        return;
+      }
+      state = { ...emptyState(), ...parsed };
+      saveState();
+      route();
+    } catch (err) {
+      alert(`Не удалось загрузить файл: ${err.message}`);
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  function markActiveNav(view) {
+    document.querySelectorAll("#nav a").forEach((link) => {
+      const route = link.dataset.route;
+      const active = route === view || (view === "readingText" && route === "reading");
+      link.classList.toggle("active", active);
+    });
+  }
+
+  function route() {
+    const { view, param } = currentRoute();
+
+    if (!state.profile) {
+      markActiveNav("home");
+      app.innerHTML = renderWelcome();
+      renderProfileBox();
+      return;
+    }
+
+    markActiveNav(view);
+    switch (view) {
+      case "cards":
+        app.innerHTML = renderCards();
+        break;
+      case "reading":
+        app.innerHTML = renderReading();
+        break;
+      case "dictionary":
+        app.innerHTML = renderDictionary();
+        initDictionary();
+        break;
+      case "readingText":
+        app.innerHTML = renderReadingText(param);
+        initReader();
+        break;
+      case "grammar":
+        app.innerHTML = renderGrammar();
+        break;
+      case "exam":
+        app.innerHTML = renderExam();
+        break;
+      case "typing":
+        app.innerHTML = renderTyping();
+        break;
+      case "stats":
+        app.innerHTML = renderStats();
+        break;
+      default:
+        app.innerHTML = renderHome();
+    }
+    renderProfileBox();
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Обработчики событий
+   * ------------------------------------------------------------------ */
+
+  document.addEventListener("submit", (event) => {
+    const form = event.target;
+
+    if (form.id === "welcome-form") {
+      event.preventDefault();
+      const name = new FormData(form).get("name").trim();
+      if (!name) return;
+      state.profile = { name, createdAt: new Date().toISOString() };
+      saveState();
+      location.hash = "#/cards";
+      route();
+      return;
+    }
+
+    if (form.id === "typing-form") {
+      event.preventDefault();
+      checkTyping(new FormData(form).get("answer") || "");
+      return;
+    }
+
+    if (form.id === "add-form") {
+      event.preventDefault();
+      const values = new FormData(form);
+      const added = addCard(values.get("front"), values.get("back"), values.get("example"));
+      if (!added) {
+        app.insertAdjacentHTML("afterbegin", '<div class="notice err">Такое слово уже есть в карточках</div>');
+      }
+      route();
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    // Экзамен
+    const examButton = event.target.closest("[data-exam]");
+    if (examButton) {
+      if (examButton.dataset.exam === "start") startExam();
+      else if (examButton.dataset.exam === "next") {
+        if (exam.index + 1 === EXAM_LENGTH) finishExam();
+        else {
+          exam.index += 1;
+          route();
+        }
+      }
+      return;
+    }
+
+    const examAnswer = event.target.closest("[data-exam-answer]");
+    if (examAnswer && exam && !exam.finished) {
+      const question = exam.questions[exam.index];
+      const chosen = Number(examAnswer.dataset.examAnswer);
+      const ok = chosen === question.correct;
+      exam.answers[exam.index] = {
+        chosen,
+        ok,
+        answer: question.options[chosen],
+        word: question.word,
+        translation: question.translation,
+      };
+      if (ok) exam.correct += 1;
+      route();
+      return;
+    }
+
+    // Тренажёр письма
+    const typingButton = event.target.closest("[data-typing]");
+    if (typingButton) {
+      const action = typingButton.dataset.typing;
+      if (action === "start" || action === "restart") {
+        startTyping();
+      } else if (typing && typing.index + 1 === typing.cards.length) {
+        const xp = typing.correct * XP_TYPING_CORRECT;
+        toast(`Тренировка: ${typing.correct} из ${typing.cards.length}`, `+${xp} XP`, typing.correct ? "good" : "");
+        typing = null;
+      } else if (typing) {
+        typing.index += 1;
+        typing.last = null;
+      }
+      route();
+      return;
+    }
+
+    const grade = event.target.closest("[data-grade]");
+    if (grade) {
+      gradeCard(Number(grade.dataset.card), Number(grade.dataset.grade));
+      refreshReviewFlow();
+      return;
+    }
+
+    const remove = event.target.closest("[data-delete]");
+    if (remove) {
+      const card = state.cards.find((item) => item.id === Number(remove.dataset.delete));
+      if (card && confirm(`Удалить карточку «${card.front}»?`)) {
+        removeCard(card.id);
+        route();
+      }
+      return;
+    }
+
+    const csvButton = event.target.closest("[data-csv]");
+    if (csvButton) {
+      if (csvButton.dataset.csv === "export") {
+        exportCsv();
+      } else {
+        const input = document.getElementById("csv-input");
+        if (input && input.value.trim()) importCsv(input.value);
+      }
+      return;
+    }
+
+    const goalButton = event.target.closest("[data-goal]");
+    if (goalButton) {
+      state.goal = Number(goalButton.dataset.goal);
+      saveState();
+      route();
+      return;
+    }
+
+    const filterButton = event.target.closest("[data-filter]");
+    if (filterButton) {
+      cardFilter = filterButton.dataset.filter;
+      route();
+      return;
+    }
+
+    const weakButton = event.target.closest("[data-weak]");
+    if (weakButton) {
+      weakOnly = weakButton.dataset.weak === "on";
+      location.hash = "#/cards";
+      route();
+      return;
+    }
+
+    const addFromDictionary = event.target.closest("[data-add-front]");
+    if (addFromDictionary) {
+      const entry = lookupWord(addFromDictionary.dataset.addFront);
+      if (entry) {
+        const added = addCard(entry.front, entry.back, entry.example);
+        addFromDictionary.textContent = added ? "Добавлено ✓" : "Уже было";
+        addFromDictionary.disabled = true;
+      }
+      return;
+    }
+
+    const speakTarget = event.target.closest("[data-speak]");
+    if (speakTarget) {
+      event.stopPropagation();
+      speak(speakTarget.dataset.speak);
+      return;
+    }
+
+    if (event.target.id === "grammar-check") {
+      checkGrammar();
+    }
+  });
+
+  function checkGrammar() {
+    const hash = location.hash || "#/grammar";
+    const index = Number(hash.split("=")[1] || 0);
+    const exercise = data.exercises[index];
+    const selected = document.querySelector('input[name="answer"]:checked');
+
+    const feedback = document.getElementById("grammar-feedback");
+    if (!selected) {
+      feedback.innerHTML = '<div class="notice err">Выберите вариант ответа</div>';
+      return;
+    }
+
+    const answer = Number(selected.value);
+    const correct = answer === exercise.correct_index;
+
+    document.querySelectorAll("#grammar-options .option").forEach((option, i) => {
+      option.classList.toggle("correct", i === exercise.correct_index);
+      option.classList.toggle("wrong", i === answer && !correct);
+    });
+
+    state.grammar.push({ exerciseId: index, correct, day: today() });
+    saveState();
+
+    const xp = correct ? XP.grammarCorrect : XP.grammarWrong;
+    toast(`${correct ? "Верно" : "Неверно"}: +${xp} XP`, correct ? "" : "Разбор ошибки — внизу", correct ? "good" : "bad");
+    checkAchievements();
+
+    feedback.innerHTML = `
+      <div class="notice ${correct ? "ok" : "err"}">
+        ${correct ? "Верно!" : `Неверно. Правильный ответ: ${escapeHtml(exercise.options[exercise.correct_index])}`}
+      </div>
+      <div class="explanation">${escapeHtml(exercise.explanation)}</div>`;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Чтение: перевод слова по клику
+   * ------------------------------------------------------------------ */
+
+  function initReader() {
+    const reader = document.getElementById("reader");
+    if (!reader) return;
+
+    const pattern = /([A-Za-zÀ-ɏ]+(?:['’-][A-Za-zÀ-ɏ]+)*)/g;
+    reader.innerHTML = reader.innerHTML.replace(/>([^<]+)</g, (_, text) => {
+      let html = "";
+      let last = 0;
+      let match;
+      pattern.lastIndex = 0;
+      while ((match = pattern.exec(text)) !== null) {
+        html += escapeHtml(text.slice(last, match.index));
+        const known = state.cards.some((card) => normalize(card.front) === normalize(match[1]));
+        html += `<span class="word${known ? " known" : ""}" data-word="${escapeHtml(match[1])}">${escapeHtml(match[1])}</span>`;
+        last = match.index + match[1].length;
+      }
+      html += escapeHtml(text.slice(last));
+      return `>${html}<`;
+    });
+
+    const popup = document.createElement("div");
+    popup.className = "popup";
+    popup.hidden = true;
+    document.body.appendChild(popup);
+
+    const spans = [...reader.querySelectorAll(".word")];
+
+    /** Какие слова подсветить при совпадении: одно или пара. */
+    const matchedSpans = (candidate, span) => {
+      if (!candidate.includes(" ")) return [span];
+      const index = spans.indexOf(span);
+      return candidate.split(" ")[0] === span.dataset.word
+        ? [span, spans[index + 1]].filter(Boolean)
+        : [spans[index - 1], span].filter(Boolean);
+    };
+
+    /** Сначала ищем фразы из двух слов («alarm clock»), затем одиночное слово. */
+    const lookupInContext = (span) => {
+      const index = spans.indexOf(span);
+      const candidates = [];
+      if (index > 0) candidates.push(`${spans[index - 1].dataset.word} ${span.dataset.word}`);
+      if (index >= 0) candidates.push(`${span.dataset.word} ${spans[index + 1]?.dataset.word ?? ""}`.trim());
+      candidates.push(span.dataset.word);
+
+      for (const candidate of candidates) {
+        const entry = lookupWord(candidate);
+        if (entry) return { entry, spans: matchedSpans(candidate, span) };
+      }
+      return null;
+    };
+
+    document.addEventListener("click", (event) => {
+      const word = event.target.closest(".word");
+      if (!word) {
+        if (!event.target.closest(".popup")) popup.hidden = true;
+        return;
+      }
+
+      const found = lookupInContext(word);
+      if (!found) {
+        showPopup(popup, word, `<h4>${escapeHtml(word.dataset.word)}</h4>
+          <div class="muted">В словаре пока нет перевода</div>`);
+        return;
+      }
+
+      const entry = found.entry;
+      const inCards = state.cards.some((card) => normalize(card.front) === normalize(entry.front));
+      if (inCards) found.spans.forEach((span) => span.classList.add("known"));
+      const button = inCards
+        ? '<div class="popup-status">Уже в ваших карточках</div>'
+        : '<button class="btn small" data-add-word>В карточки</button>';
+
+      showPopup(popup, word, `<h4>${escapeHtml(entry.front)} ${speakButton(entry.front)}</h4>
+        <div class="translation">${escapeHtml(entry.back)}</div>
+        ${entry.example ? `<div class="example">${escapeHtml(entry.example)}</div>` : ""}
+        ${button}`);
+
+      const addButton = popup.querySelector("[data-add-word]");
+      if (addButton) {
+        addButton.addEventListener("click", () => {
+          const added = addCard(entry.front, entry.back, entry.example);
+          addButton.textContent = added ? "Добавлено ✓" : "Уже было";
+          if (added) found.spans.forEach((span) => span.classList.add("known"));
+        });
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") popup.hidden = true;
+    });
+  }
+
+  function showPopup(popup, anchor, html) {
+    popup.innerHTML = html;
+    popup.hidden = false;
+    const rect = anchor.getBoundingClientRect();
+    const width = popup.offsetWidth || 260;
+    const left = Math.min(
+      Math.max(8, rect.left + window.scrollX - width / 2),
+      window.scrollX + document.documentElement.clientWidth - width - 8,
+    );
+    popup.style.left = `${left}px`;
+    popup.style.top = `${rect.bottom + window.scrollY + 8}px`;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Тема оформления
+   * ------------------------------------------------------------------ */
+
+  const THEME_KEY = "linguarust.theme";
+
+  function currentTheme() {
+    return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  }
+
+  function toggleTheme() {
+    const next = currentTheme() === "dark" ? "light" : "dark";
+    if (next === "dark") {
+      document.documentElement.dataset.theme = "dark";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+    try {
+      localStorage.setItem(THEME_KEY, next);
+    } catch (err) {
+      /* приватный режим — просто не сохраняем */
+    }
+    renderProfileBox();
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Горячие клавиши
+   * ------------------------------------------------------------------ */
+
+  const QUALITY_BY_KEY = { 1: 1, 2: 3, 3: 4, 4: 5 };
+
+  function initShortcuts() {
+    document.addEventListener("keydown", (event) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+      const focused = event.target;
+      const isTyping =
+        focused instanceof HTMLElement &&
+        (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA");
+
+      if (isTyping) {
+        if (event.key === "Escape") focused.blur();
+        return;
+      }
+
+      const { view } = currentRoute();
+
+      if (event.key === "/") {
+        const search = document.getElementById("dict-search");
+        if (search) {
+          event.preventDefault();
+          search.focus();
+        }
+        return;
+      }
+
+      if (view === "cards") {
+        if (event.key === " " || event.key === "Enter") {
+          const reveal = document.querySelector("details.reveal");
+          if (reveal) {
+            event.preventDefault();
+            reveal.open = !reveal.open;
+          }
+          return;
+        }
+        const quality = QUALITY_BY_KEY[event.key];
+        if (quality) {
+          const card = dueCards()[0];
+          if (card) {
+            event.preventDefault();
+            gradeCard(card.id, quality);
+            refreshReviewFlow();
+          }
+        } else if (event.key === "Escape") {
+          // Пропуск засчитывается как «забыто»: слово вернётся завтра.
+          const card = dueCards()[0];
+          if (card) {
+            event.preventDefault();
+            gradeCard(card.id, 1);
+            refreshReviewFlow();
+          }
+        }
+        return;
+      }
+
+      if (view === "grammar") {
+        const index = Number(event.key) - 1;
+        const option = document.querySelectorAll('input[name="answer"]')[index];
+        if (option) {
+          event.preventDefault();
+          option.checked = true;
+        }
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Запуск
+   * ------------------------------------------------------------------ */
+
+  async function start() {
+    loadState();
+    // Защита стрика применяется сразу: если вчера пропущен день, а позавчера
+    // была активность, тратим одну заморозку.
+    const healed = applyFreezeIfNeeded();
+    if (healed) toast("❄️ Стрик защищён", `Пропущенный день ${healed.slice(5)} закрыт`, "good");
+    try {
+      await loadData();
+    } catch (err) {
+      app.innerHTML = `<section class="panel"><h1>Не удалось загрузить данные</h1>
+        <p class="muted">Проверьте, что файлы <code>data/</code> доступны рядом с index.html.</p>
+        <p class="muted small">${escapeHtml(err.message)}</p></section>`;
+      return;
+    }
+
+    window.addEventListener("hashchange", route);
+    initShortcuts();
+    scheduleReminder();
+    route();
+
+    // Офлайн-режим: работает только на https и localhost.
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("sw.js").catch((err) => {
+        console.warn("service worker не зарегистрирован", err);
+      });
+    }
+  }
+
+  start();
+})();

@@ -1,0 +1,30 @@
+[
+  {
+    "slug": "morning-routine",
+    "title": "A Morning Routine",
+    "level": "A2",
+    "summary": "Как начинается обычный день: простые действия и бытовые слова.",
+    "content": "Anna wakes up at seven o'clock every morning. She does not need an alarm clock, because her cat is very noisy. First she makes a hot drink and boils two eggs for breakfast. Her flat is small, but it is comfortable and cheap.\n\nIn the morning Anna reviews her English words for about ten minutes. She learned most of them from reading, and she always adds a new word to her cards when she meets an interesting one in a text. Then she gets dressed, checks her bag and leaves the flat at half past seven.\n\nHer job is not far away, so she commutes by bike. The ride takes fifteen minutes, and she likes the fresh air. On rainy days she takes the bus, but she hates crowded stations. At the office she drinks another coffee and starts work at nine.\n\nIn the evening Anna is usually tired. She cooks a simple dinner, does the dishes and reads a few pages of a book. Before she goes to bed, she reviews the words of the day once more. This habit is small, but it helps her remember everything."
+  },
+  {
+    "slug": "small-team",
+    "title": "Working in a Small Team",
+    "level": "B1",
+    "summary": "Работа в небольшой команде: дедлайны, задачи и обратная связь.",
+    "content": "Our company is quite small: there are only twelve people, and everybody works closely with everybody else. There is no strict hierarchy, so the team lead is simply the person who organises meetings and keeps the schedule.\n\nEvery Monday we have a short meeting. The first item on the agenda is always the deadline for the current project. This quarter the workload is heavy, because we have to finish the new website before the end of the month. The manager does not promise that it will be easy, but he explains the plan and the most important tasks.\n\nMy colleague Marta is responsible for the design. She creates the interface and the illustrations, and she often has to explain her decisions to the rest of the team. When something is not clear, she does not stay silent: she asks questions and suggests a better solution. I appreciate that very much.\n\nWe also learn from our customers. Every week we read reviews and letters, and sometimes we invite a user to a meeting. Their feedback is often uncomfortable, but it helps us improve the product. In the end, a quiet, friendly team that solves problems together is worth much more than a big company with a bad atmosphere."
+  },
+  {
+    "slug": "city-and-environment",
+    "title": "The City and the Environment",
+    "level": "B2",
+    "summary": "Город и экология: транспорт, энергия и привычки жителей.",
+    "content": "Cities grow quickly, and that growth creates serious environmental problems. When more and more people move to the city, they need transport, water and energy. All of these resources are limited, and the waste that they produce is difficult to recycle completely.\n\nTransport is the most visible problem. In the morning the streets are crowded with cars and buses, and the air is not pleasant to breathe. Cycling and public transport are cheaper and cleaner, but in many cities the infrastructure is still poor. It takes years to build a comfortable bicycle path, while a new road can damage the neighbourhood in a few months.\n\nThe energy that buildings use is another serious issue. Heating an old apartment in winter may require several times more energy than heating a modern house with good insulation. Simple changes, such as insulating windows or using LED lamps, reduce consumption almost immediately. Some cities even return part of the energy from waste plants to the local network.\n\nIndividual habits matter too. If people sort their waste, use public transport and buy local food, the effect is small at first, but it becomes significant when millions of people do the same. The environment is a shared responsibility, and the change always starts with one ordinary habit."
+  },
+  {
+    "slug": "remote-work",
+    "title": "Remote Work: Pros and Cons",
+    "level": "B2",
+    "summary": "Удалённая работа: свобода, дисциплина и сложности распределённой команды.",
+    "content": "Five years ago, working from home was a privilege that only a few people could enjoy. Today it is a normal part of many professions, and almost every company has at least some rules about it. The change happened quickly, but the consequences are still being studied.\n\nThe obvious advantage is time. A person who does not commute can use those hours for exercise, for family or for rest. It is also easier to arrange a meeting with someone on another continent, because everybody can join from an office, a café or a kitchen table. Many employees report that they are more focused at home, especially when their work requires long periods of concentration.\n\nThere are disadvantages too. New colleagues meet each other less often, and it is harder to correct a mistake or to support a beginner. A distributed team needs clear rules and honest communication, otherwise a small misunderstanding can grow into a real problem. Managers also worry about the company culture: when nobody shares an office, it is easy to lose the informal conversations that create a good atmosphere.\n\nMost companies have found a compromise. They allow a few days at home and keep the rest of the week in the office, because collaboration and friendship do not appear by themselves. Remote work is not a victory or a defeat; it is a tool, and like any tool it is useful only when it matches the task."
+  }
+]

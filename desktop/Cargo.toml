@@ -1,0 +1,10 @@
+[package]
+name = "linguarust-desktop"
+version = "0.1.0"
+edition = "2024"
+description = "Desktop shell for LinguaRust"
+license = "MIT"
+
+[dependencies]
+tao = "0.34"
+wry = "0.53"

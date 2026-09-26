@@ -76,6 +76,21 @@ $env:ANDROID_HOME = "C:\Users\teivrim\AppData\Local\Android\Sdk"
 APK: `mobile/app/build/outputs/apk/debug/app-debug.apk`. Подробная инструкция
 по USB-установке находится в [`mobile/README.md`](mobile/README.md).
 
+## Десктопное приложение Windows
+
+В папке `desktop/` находится нативное окно на Rust + WebView2. Оно запускает
+ту же офлайн-версию сайта через встроенный локальный HTTP-сервер: Node.js и
+внешний сервер не нужны.
+
+```powershell
+cargo run --manifest-path desktop/Cargo.toml
+# или release:
+cargo build --release --manifest-path desktop/Cargo.toml
+.\desktop\target\release\linguarust-desktop.exe
+```
+
+Подробности и синхронизация контента: [`desktop/README.md`](desktop/README.md).
+
 ## Две версии проекта
 
 | | Статическая (GitHub Pages) | Серверная (основная локальная) |
@@ -217,6 +232,7 @@ api/axum.rs           serverless-функция для Vercel
 web/                  статическая версия сайта (GitHub Pages): страница,
                        скрипт, service worker, иконка, манифест
 mobile/               нативное Android-приложение на Java для Android Studio
+desktop/              десктопное окно Rust + WebView2 для Windows
 scripts/              локальные команды запуска
 tests/integration.rs  интеграционные тесты с PostgreSQL
  src/

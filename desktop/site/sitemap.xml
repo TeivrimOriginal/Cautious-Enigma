@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Приложение работает на хеш-маршрутах (#/cards, #/reading, …), поэтому
+  поисковикам доступна только точка входа. При смене имени репозитория
+  поправьте префикс /Cautious-Enigma/ в этом файле и в 404.html.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://teivrimoriginal.github.io/Cautious-Enigma/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
