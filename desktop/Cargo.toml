@@ -1,9 +1,26 @@
 [package]
 name = "linguarust-desktop"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
-description = "Desktop shell for LinguaRust"
+description = "LinguaRust desktop app for Windows: native WebView2 window around an offline spaced-repetition site, with tray icon, global hotkeys, focus timer and automatic progress backups"
 license = "MIT"
+repository = "https://github.com/TeivrimOriginal/Cautious-Enigma"
+homepage = "https://github.com/TeivrimOriginal/Cautious-Enigma/tree/DesktopVersion/desktop"
+documentation = "https://docs.rs/linguarust-desktop"
+readme = "README.md"
+keywords = ["education", "spaced-repetition", "webview2", "tray", "windows"]
+categories = ["education", "gui"]
+# В пакет попадает только нужное для сборки: исходники, встроенный сайт и
+# скрипт синхронизации. Корень репозитория с мобильной и серверной версией
+# пакет не раздувает.
+include = [
+    "src/**/*",
+    "site/**/*",
+    "build.rs",
+    "sync-site.ps1",
+    "README.md",
+    "Cargo.toml",
+]
 
 [dependencies]
 global-hotkey = "0.8.0"

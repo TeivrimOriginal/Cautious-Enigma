@@ -99,7 +99,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut settings = data.load_settings();
     settings.autostart = autostart::is_enabled();
 
-    let site = site_root()?;
+    let site = site_root(data.dir())?;
+    println!("Сайт: {}", site.display());
     let token = launch_token();
     let event_loop = EventLoopBuilder::<AppEvent>::with_user_event().build();
     // Сервер живёт в отдельных потоках и общается с окном через прокси цикла
@@ -450,36 +451,62 @@ fn launch_token() -> String {
     format!("{first:016x}{second:016x}")
 }
 
-/// Ищет каталог с `index.html`: сначала собранный `site`, затем исходники.
-fn site_root() -> Result<PathBuf, Box<dyn Error>> {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+// Содержимое офлайн-сайта, собранное в бинарник скриптом `build.rs`.
+//
+// Нужно для установки через `cargo install`: там рядом с exe нет папки
+// `desktop/site`, а статические файлы веба всё равно обязательны.
+include!(concat!(env!("OUT_DIR"), "/site_files.rs"));
+
+/// Ищет каталог с `index.html`: сначала собранный `site`, затем исходники,
+/// иначе распаковывает сайт, вшитый в бинарник.
+fn site_root(data_dir: &Path) -> Result<PathBuf, Box<dyn Error>> {
     let mut candidates = Vec::new();
 
-    // Собранный `desktop/site` ищем первым: только он содержит `data/` и
-    // `style.css`, которые ждёт офлайн-версия сайта.
+    // 1) Папка рядом с exe — раскладка обычной установки.
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
         candidates.push(dir.join("site"));
-        candidates.push(dir.join("..").join("site"));
-        candidates.push(dir.join("..").join("..").join("site"));
     }
-    candidates.push(manifest.join("site"));
+    // 2) Папка из репозитория — запуск из исходников и `cargo run`.
+    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("site"));
+    // 3) Текущий каталог — когда бинарник положили рядом с сайтом.
     if let Ok(current) = std::env::current_dir() {
-        candidates.push(current.join("desktop").join("site"));
         candidates.push(current.join("site"));
-    }
-    if let Some(parent) = manifest.parent() {
-        candidates.push(parent.join("web"));
     }
 
     for candidate in candidates {
-        if candidate.join("index.html").is_file() {
-            return Ok(std::fs::canonicalize(candidate)?);
+        // Проверяем не только index.html: настоящая копия сайта содержит
+        // каталог `data/`, иначе подойдёт любая случайная папка с index.html.
+        if candidate.join("index.html").is_file() && candidate.join("data").is_dir() {
+            return Ok(fs::canonicalize(candidate)?);
         }
     }
 
-    Err("не найден desktop/site/index.html (запусти sync-site.ps1)".into())
+    let target = data_dir.join("site");
+    materialize_site(&target)?;
+    Ok(fs::canonicalize(&target)?)
+}
+
+/// Записывает встроенные файлы сайта на диск, не трогая уже существующие.
+fn materialize_site(target: &Path) -> Result<(), Box<dyn Error>> {
+    if SITE_FILES.is_empty() {
+        return Err("в бинарник не вшит ни один файл сайта".into());
+    }
+    let mut written = 0_usize;
+    for (relative, contents) in SITE_FILES {
+        let path = target.join(relative);
+        if path.is_file() {
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, contents)?;
+        written += 1;
+    }
+    println!("Сайт распакован в {} (файлов: {written})", target.display());
+    Ok(())
 }
 
 #[cfg(test)]
@@ -523,5 +550,44 @@ mod tests {
             .expect("увеличиваем размер");
         assert!(!importable_file(&path), "файл больше предела");
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn embedded_site_is_complete() {
+        // При установке через cargo install сайт берётся из бинарника, поэтому
+        // пропущенный файл здесь означает сломанную сборку приложения.
+        let names: Vec<&str> = SITE_FILES.iter().map(|(name, _)| *name).collect();
+        for required in [
+            "index.html",
+            "app.js",
+            "style.css",
+            "sw.js",
+            "icon.svg",
+            "data/dictionary.tsv",
+            "data/grammar.json",
+            "data/texts.json",
+        ] {
+            assert!(names.contains(&required), "в бинарнике нет {required}");
+        }
+        assert!(names.len() >= 12, "в бинарнике {names:?}");
+    }
+
+    #[test]
+    fn site_is_written_from_embedded_files() {
+        let target = std::env::temp_dir().join("linguarust-embedded-site-test");
+        let _ = fs::remove_dir_all(&target);
+        materialize_site(&target).expect("распаковка сайта");
+        assert!(target.join("index.html").is_file());
+        assert!(target.join("data/dictionary.tsv").is_file());
+
+        // Повторный запуск не перезаписывает уже существующие файлы.
+        fs::write(target.join("index.html"), "порча").expect("порча файла");
+        materialize_site(&target).expect("повторная распаковка");
+        assert_eq!(
+            fs::read_to_string(target.join("index.html")).expect("чтение файла"),
+            "порча",
+            "существующие файлы не должны перезаписываться"
+        );
+        let _ = fs::remove_dir_all(&target);
     }
 }

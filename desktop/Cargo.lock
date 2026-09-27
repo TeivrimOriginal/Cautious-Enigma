@@ -1254,7 +1254,7 @@ dependencies = [
 
 [[package]]
 name = "linguarust-desktop"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "global-hotkey",
  "muda",

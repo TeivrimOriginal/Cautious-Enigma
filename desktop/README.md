@@ -2,7 +2,18 @@
 
 Нативное десктопное окно для Windows на Rust + WebView2. Внутри работает та же
 офлайн-версия сайта: карточки, словарь, чтение, грамматика, экзамен, тренажёр
-письма и прогресс в `localStorage`.
+письма, фокус-сессия и прогресс в `localStorage`.
+
+## Установка
+
+```bash
+cargo install linguarust-desktop
+linguarust-desktop
+```
+
+Бинарник самодостаточен: офлайн-сайт вшит в него при сборке и распаковывается
+в `%APPDATA%\LinguaRust\site` при первом запуске. Node.js, Python и внешний
+сервер не нужны.
 
 ## Что умеет оболочка
 
@@ -85,6 +96,8 @@ Node.js, Python и внешний сервер не нужны.
 ```text
 desktop/
 ├── Cargo.toml
+├── build.rs           сборка списка встраиваемых файлов сайта
+├── publish.ps1        проверки, сборка пакета и публикация на crates.io
 ├── src/
 │   ├── main.rs      окно, геометрия, тема, цикл событий, drag & drop
 │   ├── server.rs    локальный HTTP-сервер и мост /__app/*
@@ -98,7 +111,7 @@ desktop/
 │   ├── autostart.rs ветка реестра HKCU\...\Run
 │   ├── cli.rs       разбор аргументов командной строки
 │   └── util.rs      даты, время и запуск внешних программ
-├── site/            офлайн-копия веб-версии
+├── site/            офлайн-копия веб-версии, вшивается в бинарник
 └── sync-site.ps1    обновление site из web/ и data/
 ```
 
@@ -182,3 +195,30 @@ cargo fmt --manifest-path desktop/Cargo.toml -- --check
 cargo clippy --manifest-path desktop/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path desktop/Cargo.toml
 ```
+
+## Публикация
+
+Пакет `linguarust-desktop` выложен на [crates.io](https://crates.io/crates/linguarust-desktop).
+
+Авторизация нужна один раз:
+
+```bash
+cargo login   # токен со страницы https://crates.io/me/settings/tokens
+```
+
+Дальше публикация новой версии одной командой:
+
+```powershell
+.\desktop\publish.ps1            # проверить, собрать и отправить
+.\desktop\publish.ps1 -DryRun    # только собрать и проверить пакет
+```
+
+Скрипт сам поднимает версию в проверках, синхронизирует встроенный сайт,
+собирает архив и только затем отправляет его в реестр. Перед каждой публикацией
+нужно поднять `version` в `desktop/Cargo.toml` — crates.io не принимает
+повторную версию.
+
+Зеркало реестра из `.cargo/config.toml` (USTC) мешает загрузке, поэтому скрипт
+на время публикации убирает его и возвращает обратно. Если crates.io недоступен
+из сети (как на машине с зеркалом), публиковать нужно с подключением, через
+которое открывается https://crates.io.

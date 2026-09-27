@@ -110,6 +110,14 @@ cargo build --release --manifest-path desktop/Cargo.toml
 .\desktop\target\release\linguarust-desktop.exe
 ```
 
+Готовый пакет выложен на crates.io, офлайн-сайт вшит в бинарник:
+
+```bash
+cargo install linguarust-desktop
+```
+
+Публикация новой версии: `.\desktop\publish.ps1` (после `cargo login`).
+
 Подробности и синхронизация контента: [`desktop/README.md`](desktop/README.md).
 
 ## Две версии проекта
