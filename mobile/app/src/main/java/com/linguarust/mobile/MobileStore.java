@@ -36,6 +36,18 @@ public final class MobileStore {
     private static final String GOAL = "daily_goal";
     private static final String TYPING_TOTAL = "typing_total";
     private static final String TYPING_CORRECT = "typing_correct";
+    // Фокус-сессия: тот же сценарий, что в веб-версии и на десктопе.
+    private static final String FOCUS_ENDS_AT = "focus_ends_at";
+    private static final String FOCUS_MODE = "focus_mode";
+    private static final String FOCUS_MINUTES = "focus_minutes";
+    private static final String FOCUS_ROUNDS = "focus_rounds";
+    private static final String FOCUS_DAY = "focus_day";
+    private static final String FOCUS_DAY_ROUNDS = "focus_day_rounds";
+
+    /** XP за завершённый подход. */
+    public static final int FOCUS_ROUND_XP = 15;
+    /** Перерыв после подхода, минуты. */
+    public static final int FOCUS_BREAK_MINUTES = 5;
 
     private final SharedPreferences preferences;
     private final ContentRepository content;
@@ -200,6 +212,96 @@ public final class MobileStore {
         int total = reviews();
         if (total == 0) return 0;
         return Math.round(correctReviews() * 100f / total);
+    }
+
+    /* ------------------------------------------------------------------ *
+     * Фокус-сессия
+     * ------------------------------------------------------------------ */
+
+    /** Что идёт сейчас: «focus» — подход, «break» — перерыв. */
+    public String focusMode() {
+        return preferences.getString(FOCUS_MODE, "focus");
+    }
+
+    /** Длительность текущей фазы, минуты. */
+    public int focusMinutes() {
+        return Math.max(1, preferences.getInt(FOCUS_MINUTES, 25));
+    }
+
+    /** Остаток секунд текущей фазы; 0 — таймер не идёт. */
+    public long focusRemaining() {
+        long endsAt = preferences.getLong(FOCUS_ENDS_AT, 0L);
+        if (endsAt <= 0L) return 0L;
+        return Math.max(0L, (endsAt - System.currentTimeMillis() + 999L) / 1000L);
+    }
+
+    /** Таймер идёт прямо сейчас. */
+    public boolean focusRunning() {
+        return focusRemaining() > 0L;
+    }
+
+    /** Всего завершённых подходов. */
+    public int focusRounds() {
+        return preferences.getInt(FOCUS_ROUNDS, 0);
+    }
+
+    /** Подходов за сегодня: счётчик сбрасывается при смене дня. */
+    public int focusRoundsToday() {
+        rollFocusDay();
+        return preferences.getInt(FOCUS_DAY_ROUNDS, 0);
+    }
+
+    /** Запускает подход или перерыв. */
+    public void startFocus(int minutes, String mode) {
+        int length = Math.max(1, minutes);
+        long now = System.currentTimeMillis();
+        preferences.edit()
+                .putString(FOCUS_MODE, mode)
+                .putInt(FOCUS_MINUTES, length)
+                .putLong(FOCUS_ENDS_AT, now + length * 60_000L)
+                .apply();
+    }
+
+    /** Останавливает таймер без начисления XP. */
+    public void stopFocus() {
+        preferences.edit().putLong(FOCUS_ENDS_AT, 0L).apply();
+    }
+
+    /**
+     * Проверяет таймер и завершает фазу, если время вышло.
+     *
+     * Возвращает 1 — засчитан подход, 2 — закончился перерыв, 0 — ничего.
+     */
+    public int tickFocus() {
+        if (focusRemaining() > 0L) return 0;
+        long endsAt = preferences.getLong(FOCUS_ENDS_AT, 0L);
+        if (endsAt <= 0L) return 0;
+
+        SharedPreferences.Editor editor = preferences.edit();
+        editor.putLong(FOCUS_ENDS_AT, 0L);
+        if ("break".equals(focusMode())) {
+            editor.apply();
+            return 2;
+        }
+
+        rollFocusDay();
+        editor.putInt(FOCUS_ROUNDS, focusRounds() + 1)
+                .putInt(FOCUS_DAY_ROUNDS, preferences.getInt(FOCUS_DAY_ROUNDS, 0) + 1)
+                .putInt(XP, xp() + FOCUS_ROUND_XP)
+                .apply();
+        startFocus(FOCUS_BREAK_MINUTES, "break");
+        return 1;
+    }
+
+    /** Обнуляет дневной счётчик подходов при наступлении нового дня. */
+    private void rollFocusDay() {
+        String today = dateKey(System.currentTimeMillis());
+        if (!today.equals(preferences.getString(FOCUS_DAY, ""))) {
+            preferences.edit()
+                    .putString(FOCUS_DAY, today)
+                    .putInt(FOCUS_DAY_ROUNDS, 0)
+                    .apply();
+        }
     }
 
     public LevelInfo level() {

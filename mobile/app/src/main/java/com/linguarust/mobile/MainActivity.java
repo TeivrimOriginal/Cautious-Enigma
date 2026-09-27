@@ -10,6 +10,8 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.CountDownTimer;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
@@ -47,6 +49,10 @@ public final class MainActivity extends Activity {
 
     private String screen = "home";
     private String selectedTab = "home";
+    // Фокус-сессия: таймер отсчёта и подсветка фазы.
+    private final Handler focusHandler = new Handler(Looper.getMainLooper());
+    private TextView focusClockView;
+    private boolean focusTickerRunning;
     private CardState reviewingCard;
     private CardState lastReviewedCard;
     private boolean answerVisible;
@@ -196,6 +202,12 @@ public final class MainActivity extends Activity {
     }
 
     private void render() {
+        // Уходя с главного экрана, снимаем таймер: он держит ссылку на
+        // исчезнувший TextView и продолжил бы обновлять пустой экран.
+        if (!"home".equals(screen)) {
+            stopFocusTicker();
+            focusClockView = null;
+        }
         content.removeAllViews();
         switch (screen) {
             case "cards":
@@ -293,6 +305,9 @@ public final class MainActivity extends Activity {
         page.addView(space(14));
         page.addView(actions);
 
+        page.addView(space(14));
+        page.addView(focusPanel());
+
         LinearLayout metrics = new LinearLayout(this);
         metrics.setOrientation(LinearLayout.HORIZONTAL);
         metrics.setWeightSum(3);
@@ -327,6 +342,108 @@ public final class MainActivity extends Activity {
         }
         content.addView(page);
     }
+
+    /**
+     * Панель фокус-сессии: запуск подхода, обратный отсчёт и счётчик дня.
+     *
+     * Отсчёт тикает раз в секунду и сам засчитывает завершённый подход.
+     */
+    private View focusPanel() {
+        LinearLayout panel = panel();
+        // Фаза могла закончиться, пока приложение было закрыто: засчитываем её
+        // сразу, иначе подход потерялся бы вместе с закрытым таймером.
+        int pending = store.tickFocus();
+        if (pending == 1) {
+            toast("Подход завершён: +" + MobileStore.FOCUS_ROUND_XP + " XP");
+        } else if (pending == 2) {
+            toast("Перерыв окончен");
+        }
+        boolean running = store.focusRunning();
+        long remaining = store.focusRemaining();
+        boolean isBreak = "break".equals(store.focusMode());
+
+        panel.addView(label(running && isBreak ? "Перерыв" : "Фокус-сессия", 13, accent, true));
+        panel.addView(space(6));
+
+        TextView clock = label(running ? focusClock(remaining) : "—", 30, textColor, true);
+        panel.addView(clock);
+        panel.addView(label(running
+                ? (isBreak ? "Встань, посмотри вдаль, попей воды" : "Повторения важнее новых слов")
+                : "Подходы 15, 25 или 45 минут, перерыв " + MobileStore.FOCUS_BREAK_MINUTES
+                        + " минут. Подход даёт " + MobileStore.FOCUS_ROUND_XP + " XP.",
+                14, mutedColor));
+
+        LinearLayout buttons = row();
+        if (running) {
+            buttons.addView(secondaryButton("Остановить", v -> {
+                store.stopFocus();
+                stopFocusTicker();
+                toast("Таймер остановлен");
+                render();
+            }), weightedButton());
+        } else {
+            for (int minutes : new int[]{15, 25, 45}) {
+                Button start = primaryButton(minutes + " мин", v -> {
+                    store.startFocus(minutes, "focus");
+                    toast("Подход: " + minutes + " минут");
+                    render();
+                });
+                buttons.addView(start, weightedButton());
+            }
+        }
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(44));
+        params.topMargin = dp(12);
+        buttons.setLayoutParams(params);
+        panel.addView(buttons);
+
+        panel.addView(space(8));
+        panel.addView(label("Сегодня подходов: " + store.focusRoundsToday()
+                + " · всего: " + store.focusRounds(), 13, mutedColor));
+
+        focusClockView = running ? clock : null;
+        if (running) startFocusTicker();
+        return panel;
+    }
+
+    /** Подпись обратного отсчёта: `⏳ 24:59`. */
+    private String focusClock(long seconds) {
+        long minutes = seconds / 60;
+        long rest = seconds % 60;
+        return ("break".equals(store.focusMode()) ? "☕ " : "⏳ ") + minutes + ":" + (rest < 10 ? "0" : "") + rest;
+    }
+
+    /** Тик таймера: обновляет часы и реагирует на завершение фазы. */
+    private void startFocusTicker() {
+        if (focusTickerRunning) return;
+        focusTickerRunning = true;
+        focusHandler.postDelayed(focusTick, 1000L);
+    }
+
+    private void stopFocusTicker() {
+        focusTickerRunning = false;
+        focusHandler.removeCallbacks(focusTick);
+    }
+
+    private final Runnable focusTick = new Runnable() {
+        @Override
+        public void run() {
+            int result = store.tickFocus();
+            if (result == 1) {
+                toast("Подход завершён: +" + MobileStore.FOCUS_ROUND_XP + " XP");
+            } else if (result == 2) {
+                toast("Перерыв окончен");
+            }
+            if (result > 0) {
+                // Состояние изменилось — перерисовываем текущий экран.
+                render();
+            } else if (focusClockView != null && store.focusRunning()) {
+                focusClockView.setText(focusClock(store.focusRemaining()));
+                focusHandler.postDelayed(this, 1000L);
+            } else {
+                focusTickerRunning = false;
+            }
+        }
+    };
 
     private void renderCards() {
         topTitle.setText(t("Карточки"));
