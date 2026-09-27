@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, DesktopVersion]
   pull_request:
     branches: [main]
 
@@ -12,6 +12,7 @@ env:
 
 jobs:
   check:
+    name: Серверная версия
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,3 +35,41 @@ jobs:
 
       - name: Сборка
         run: cargo build --release --locked
+
+  desktop:
+    name: Десктопное приложение
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установить Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop
+
+      - name: Форматирование
+        run: cargo fmt --manifest-path desktop/Cargo.toml -- --check
+
+      - name: Clippy
+        run: cargo clippy --manifest-path desktop/Cargo.toml --all-targets -- -D warnings
+
+      - name: Тесты
+        run: cargo test --manifest-path desktop/Cargo.toml
+
+      # Сборка и проверка архива пакета: ровно то, что уходит на crates.io.
+      - name: Проверка пакета
+        run: cargo package --manifest-path desktop/Cargo.toml --locked
+
+      - name: Сборка
+        run: cargo build --release --manifest-path desktop/Cargo.toml --locked
+
+      - name: Готовый бинарник
+        uses: actions/upload-artifact@v4
+        with:
+          name: linguarust-desktop
+          path: desktop/target/release/linguarust-desktop.exe
+          if-no-files-found: error

@@ -1,0 +1,81 @@
+name: Desktop release
+
+# Публикует переносимый архив с десктопным приложением: офлайн-сайт вшит в
+# бинарник, поэтому в архиве остаётся один файл.
+#
+# Запуск: push тега вида desktop-v0.3.0 или ручной запуск из Actions.
+
+on:
+  push:
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Тег релиза, например desktop-v0.3.0
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Сборка и релиз
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установить Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop
+
+      - name: Тесты
+        run: cargo test --manifest-path desktop/Cargo.toml
+
+      - name: Сборка
+        run: cargo build --release --manifest-path desktop/Cargo.toml --locked
+
+      - name: Версия
+        id: version
+        shell: pwsh
+        run: |
+          $tag = if ("${{ github.event.inputs.tag }}" -ne "") {
+            "${{ github.event.inputs.tag }}"
+          } else {
+            "${{ github.ref_name }}"
+          }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$(cargo metadata --manifest-path desktop/Cargo.toml --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version" >> $env:GITHUB_OUTPUT
+
+      - name: Переносимый архив
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $version = "${{ steps.version.outputs.version }}"
+          $zip = "linguarust-desktop-$version-windows-x64.zip"
+          Compress-Archive -Path desktop/target/release/linguarust-desktop.exe -DestinationPath $zip
+          "Архив: $zip"
+          "sha256: $((Get-FileHash $zip -Algorithm SHA256).Hash)" | Tee-Object -FilePath checksum.txt
+
+      - name: Публикация релиза
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: LinguaRust Desktop ${{ steps.version.outputs.version }}
+          body: |
+            Переносимое десктопное приложение LinguaRust для Windows x64.
+
+            - бинарник самодостаточен: офлайн-сайт вшит внутрь
+            - данные и резервные копии лежат в `%APPDATA%\LinguaRust`
+            - трей, горячие клавиши `Ctrl+Alt+L/S/P`, фокус-сессия
+
+            Установка из исходников: `cargo install linguarust-desktop`
+          files: |
+            linguarust-desktop-*-windows-x64.zip
+            checksum.txt
+          fail_on_unmatched_files: true
