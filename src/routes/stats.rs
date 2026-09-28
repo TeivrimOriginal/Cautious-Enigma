@@ -28,6 +28,12 @@ pub struct StatsPage {
     pub translations: i64,
     pub accuracy: f64,
     pub accuracy_text: String,
+    /// Процент удержания за окно активности.
+    pub retention: f64,
+    pub retention_text: String,
+    /// `false`, когда ответов мало и процент показывать рано.
+    pub retention_meaningful: bool,
+    pub retention_reviews: i64,
     pub current_streak: u32,
     pub longest: u32,
     pub days_active: i64,
@@ -82,6 +88,10 @@ page_impl!(StatsPage {
     translations: i64,
     accuracy: f64,
     accuracy_text: String,
+    retention: f64,
+    retention_text: String,
+    retention_meaningful: bool,
+    retention_reviews: i64,
     current_streak: u32,
     longest: u32,
     days_active: i64,
@@ -138,6 +148,19 @@ pub async fn index(State(state): State<AppState>, profile: Profile) -> AppResult
     page.translations = summary.translations;
     page.accuracy = stats::accuracy_percent(summary.total_reviews, summary.successful_reviews);
     page.accuracy_text = format!("{:.1}", page.accuracy);
+
+    // Удержание считается по окну активности, а не по всей истории:
+    // показатель, в котором смешаны сегодняшние ответы и ответы полугодовой
+    // давности, не отвечает ни на какой вопрос.
+    let retention = stats::retention(&activity);
+    page.retention = retention.percent;
+    page.retention_meaningful = retention.is_meaningful();
+    page.retention_text = if retention.is_meaningful() {
+        format!("{:.1}", retention.percent)
+    } else {
+        "—".to_string()
+    };
+    page.retention_reviews = retention.reviews;
     page.current_streak = stats::current_streak(&days, today);
     page.longest = stats::longest_streak(&days);
     page.days_active = days.len() as i64;
@@ -150,23 +173,12 @@ pub async fn index(State(state): State<AppState>, profile: Profile) -> AppResult
 
     // Распределение карточек по стадии освоения.
     let total = cards.len().max(1) as f64;
-    let mut fresh = 0_i64;
-    let mut learning = 0_i64;
-    let mut familiar = 0_i64;
-    let mut mastered = 0_i64;
-    for card in &cards {
-        match card.repetitions {
-            r if r <= 0 => fresh += 1,
-            r if r <= 2 => learning += 1,
-            r if r <= 4 => familiar += 1,
-            _ => mastered += 1,
-        }
-    }
-    page.buckets = ["Новые", "Изучаются", "Знакомые", "Освоенные"]
+    let counts = stats::Mastery::count(&cards);
+    page.buckets = stats::Mastery::all()
         .iter()
-        .zip([fresh, learning, familiar, mastered])
-        .map(|(label, count)| Bucket {
-            label,
+        .zip(counts)
+        .map(|(mastery, count)| Bucket {
+            label: mastery.label(),
             count,
             percent: count as f64 / total * 100.0,
             percent_text: format!("{:.0}", count as f64 / total * 100.0),

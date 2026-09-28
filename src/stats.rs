@@ -157,6 +157,113 @@ pub fn level_progress(xp: i32) -> LevelProgress {
     }
 }
 
+/// Сколько повторений попало в окно и сколько из них успешных.
+///
+/// Знаменатель и числитель хранятся рядом с процентом: «удержание 90%» на двух
+/// ответах и на двухстах — разные утверждения, и одно число здесь обманывает.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Retention {
+    pub reviews: i64,
+    pub successful: i64,
+    /// Доля успешных ответов в процентах, 0..=100.
+    pub percent: f64,
+    /// Дней в окне, которые реально были.
+    pub active_days: u32,
+}
+
+impl Retention {
+    /// Достаточно ли ответов, чтобы процент вообще что-то значил.
+    ///
+    /// Порог 20 — тот же, что у достижения «Точность 90%»: на десяти
+    /// ответах статистика скачет на десятки процентов.
+    pub fn is_meaningful(&self) -> bool {
+        self.reviews >= 20
+    }
+}
+
+/// Удержание по активности за окно.
+///
+/// Удержание здесь — доля успешных повторений: сколько раз слово вспомнилось
+/// из всех попыток. Считается по тем же данным, что и график, поэтому
+/// расхождение между «точностью» и «удержанием» на странице невозможно.
+pub fn retention(days: &[crate::models::DailyActivity]) -> Retention {
+    let reviews: i64 = days.iter().map(|day| day.reviews).sum();
+    let successful: i64 = days.iter().map(|day| day.successful).sum();
+    Retention {
+        reviews,
+        successful,
+        percent: accuracy_percent(reviews, successful),
+        active_days: days.len() as u32,
+    }
+}
+
+/// Стадия освоения карточки по числу успешных повторений.
+///
+/// Границы те же, что у воронки на странице статистики: одна таблица на оба
+/// экрана, иначе «новые» на дашборде и «новые» в подсчёте разойдутся.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mastery {
+    /// Ещё не повторялось.
+    Fresh,
+    /// 1–2 повторения: слово в работе.
+    Learning,
+    /// 3–4 повторения: знакомое.
+    Familiar,
+    /// 5 и больше: освоенное.
+    Mastered,
+}
+
+impl Mastery {
+    /// Стадия по числу повторений из базы.
+    pub fn of(repetitions: i32) -> Self {
+        match repetitions {
+            r if r <= 0 => Self::Fresh,
+            r if r <= 2 => Self::Learning,
+            r if r <= 4 => Self::Familiar,
+            _ => Self::Mastered,
+        }
+    }
+
+    /// Подпись для воронки.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Fresh => "Новые",
+            Self::Learning => "Изучаются",
+            Self::Familiar => "Знакомые",
+            Self::Mastered => "Освоенные",
+        }
+    }
+
+    /// Позиция стадии в воронке: порядок `label` и результата `count`.
+    const fn index(self) -> usize {
+        match self {
+            Self::Fresh => 0,
+            Self::Learning => 1,
+            Self::Familiar => 2,
+            Self::Mastered => 3,
+        }
+    }
+
+    /// Считает карточки по стадиям, в порядке `all()`.
+    pub fn count(cards: &[crate::models::CardRow]) -> [i64; 4] {
+        let mut counts = [0_i64; 4];
+        for card in cards {
+            counts[Self::of(card.repetitions).index()] += 1;
+        }
+        counts
+    }
+
+    /// Все четыре стадии — для воронки в шаблоне.
+    pub fn all() -> [Self; 4] {
+        [
+            Self::Fresh,
+            Self::Learning,
+            Self::Familiar,
+            Self::Mastered,
+        ]
+    }
+}
+
 /// Входные данные для проверки достижений.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AchievementInput {
@@ -475,6 +582,127 @@ mod tests {
         assert_eq!(mastery_percent(1), 20.0);
         assert_eq!(mastery_percent(5), 100.0);
         assert_eq!(mastery_percent(50), 100.0);
+    }
+
+    /* ---------------------------------------------------------------- *
+     * Удержание
+     * ---------------------------------------------------------------- */
+
+    fn activity(ymd: &str, reviews: i64, successful: i64) -> crate::models::DailyActivity {
+        crate::models::DailyActivity {
+            day: NaiveDate::parse_from_str(ymd, "%Y-%m-%d").expect("корректная дата"),
+            reviews,
+            successful,
+        }
+    }
+
+    #[test]
+    fn retention_of_an_empty_window_is_zero() {
+        let result = retention(&[]);
+        assert_eq!(result.reviews, 0);
+        assert_eq!(result.successful, 0);
+        assert_eq!(result.percent, 0.0);
+        assert_eq!(result.active_days, 0);
+        assert!(
+            !result.is_meaningful(),
+            "без ответов процент не значит ничего"
+        );
+    }
+
+    #[test]
+    fn retention_counts_the_window() {
+        let days = [
+            activity("2026-09-22", 10, 9),
+            activity("2026-09-23", 10, 6),
+        ];
+        let result = retention(&days);
+        assert_eq!(result.reviews, 20);
+        assert_eq!(result.successful, 15);
+        assert_eq!(result.percent, 75.0);
+        assert_eq!(result.active_days, 2);
+        assert!(result.is_meaningful());
+    }
+
+    #[test]
+    fn retention_needs_enough_answers() {
+        // На двух ответах 100% выглядит как отличный результат, хотя это шум.
+        assert!(!retention(&[activity("2026-09-24", 2, 2)]).is_meaningful());
+        assert!(!retention(&[activity("2026-09-24", 19, 19)]).is_meaningful());
+        assert!(retention(&[activity("2026-09-24", 20, 20)]).is_meaningful());
+    }
+
+    #[test]
+    fn retention_stays_inside_the_range() {
+        // Данные из базы могут разойтись; процент всё равно обязан быть числом.
+        let result = retention(&[activity("2026-09-24", 5, 99)]);
+        assert!((0.0..=100.0).contains(&result.percent), "{result:?}");
+    }
+
+    /* ---------------------------------------------------------------- *
+     * Стадии освоения
+     * ---------------------------------------------------------------- */
+
+    #[test]
+    fn mastery_stages_follow_the_funnel_borders() {
+        assert_eq!(Mastery::of(0), Mastery::Fresh);
+        assert_eq!(Mastery::of(-5), Mastery::Fresh);
+        assert_eq!(Mastery::of(1), Mastery::Learning);
+        assert_eq!(Mastery::of(2), Mastery::Learning);
+        assert_eq!(Mastery::of(3), Mastery::Familiar);
+        assert_eq!(Mastery::of(4), Mastery::Familiar);
+        assert_eq!(Mastery::of(5), Mastery::Mastered);
+        assert_eq!(Mastery::of(1_000), Mastery::Mastered);
+    }
+
+    #[test]
+    fn mastery_stages_have_distinct_labels() {
+        let labels: Vec<&str> = Mastery::all().iter().map(|m| m.label()).collect();
+        assert_eq!(labels.len(), 4);
+        for (index, label) in labels.iter().enumerate() {
+            assert!(!label.is_empty());
+            assert!(
+                !labels[..index].contains(label),
+                "подпись повторяется: {label}"
+            );
+        }
+    }
+
+    fn card_with(repetitions: i32) -> crate::models::CardRow {
+        crate::models::CardRow {
+            id: repetitions as i64,
+            front: "word".into(),
+            back: "слово".into(),
+            example: None,
+            repetitions,
+            interval_days: 0,
+            ease: 2.5,
+            due_date: None,
+            created_at: chrono::DateTime::default(),
+            last_reviewed_at: None,
+        }
+    }
+
+    #[test]
+    fn mastery_funnel_counts_every_card() {
+        let cards = [
+            card_with(0),
+            card_with(1),
+            card_with(2),
+            card_with(3),
+            card_with(7),
+        ];
+        let counts = Mastery::count(&cards);
+        assert_eq!(counts, [1, 2, 1, 1]);
+        assert_eq!(
+            counts.iter().sum::<i64>(),
+            cards.len() as i64,
+            "карточка не должна теряться между стадиями"
+        );
+    }
+
+    #[test]
+    fn mastery_funnel_of_an_empty_deck_is_all_zeros() {
+        assert_eq!(Mastery::count(&[]), [0, 0, 0, 0]);
     }
 
     #[test]

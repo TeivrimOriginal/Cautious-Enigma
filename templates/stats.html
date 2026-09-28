@@ -23,6 +23,16 @@
     <div class="value">{{ reviews_per_day_text }}</div>
     <div class="label">повторений в день</div>
   </div>
+  <div class="metric" {% if !retention_meaningful %}title="Мало ответов — процент пока рано"{% endif %}>
+    <div class="value">{{ retention_text }}{% if retention_meaningful %}%{% endif %}</div>
+    <div class="label">
+      {% if retention_meaningful %}
+        удержание за 90 дней ({{ retention_reviews }} ответов)
+      {% else %}
+        удержание (нужно 20 ответов)
+      {% endif %}
+    </div>
+  </div>
 </section>
 
 <section class="grid cols-2" style="margin-top: 20px;">
