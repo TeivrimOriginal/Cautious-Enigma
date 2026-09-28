@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::auth::{MaybeProfile, Profile};
 use crate::error::{ApiResult, AppError};
-use crate::{AppState, queries, seed};
+use crate::{AppState, models, queries, seed};
 
 #[derive(Debug, Deserialize)]
 pub struct TranslateQuery {
@@ -78,10 +78,13 @@ pub async fn add_card(
     profile: Profile,
     Json(request): Json<AddCardRequest>,
 ) -> ApiResult<Json<AddCardResponse>> {
+    // Пустой перевод здесь — не ошибка: его возьмём из словаря проекта.
+    // Поэтому проверяем вход сначала «мягко», а окончательно — после
+    // подстановки из словаря.
     let front = request.front.trim();
     let back = request.back.trim();
-    if front.is_empty() || back.is_empty() {
-        return Err(AppError::BadRequest("Нужны слово и перевод".into()).into());
+    if front.is_empty() {
+        return Err(AppError::BadRequest("Нужно слово".into()).into());
     }
 
     // Если слово есть в словаре проекта, подставляем проверенный перевод.
@@ -98,10 +101,23 @@ pub async fn add_card(
         .map(str::to_string)
         .or_else(|| seed::lookup(&front).and_then(|entry| entry.example.clone()));
 
-    let added =
-        queries::insert_card(&state.db, profile.id, &front, &back, example.as_deref()).await?;
+    // Общая проверка форм и API: одинаковые правила длины и обрезки.
+    let input = models::validate_card(&front, &back, example.as_deref())?;
 
-    Ok(Json(AddCardResponse { added, front, back }))
+    let added = queries::insert_card(
+        &state.db,
+        profile.id,
+        &input.front,
+        &input.back,
+        input.example.as_deref(),
+    )
+    .await?;
+
+    Ok(Json(AddCardResponse {
+        added,
+        front: input.front,
+        back: input.back,
+    }))
 }
 
 #[derive(Debug, Deserialize)]

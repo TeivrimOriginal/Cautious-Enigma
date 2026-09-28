@@ -3,6 +3,7 @@
 use axum::Form;
 use axum::extract::State;
 use axum::response::{Html, IntoResponse, Redirect};
+use chrono::NaiveDate;
 use serde::Deserialize;
 use tower_cookies::Cookies;
 
@@ -82,6 +83,130 @@ page_impl!(Dashboard {
     goal_percent: i32,
     goal_done: bool,
 });
+
+/// Строит график активности за 14 дней: пропуски заполняются нулями.
+fn build_bars(activity: &[crate::models::DailyActivity]) -> Vec<DayBar> {
+    build_bars_for(activity, today())
+}
+
+/// График относительно произвольной «сегодняшней» даты.
+///
+/// Вынесено отдельно, чтобы поведение (окно в 14 дней, нули в пропусках,
+/// нормировка столбиков) можно было проверить без обращения к часам.
+fn build_bars_for(activity: &[crate::models::DailyActivity], today: NaiveDate) -> Vec<DayBar> {
+    let start = today - chrono::Days::new(13);
+    let max = activity
+        .iter()
+        .map(|row| row.reviews)
+        .max()
+        .unwrap_or(0)
+        .max(1);
+
+    (0..14)
+        .map(|offset| {
+            let day = start + chrono::Days::new(offset);
+            let row = activity.iter().find(|row| row.day == day);
+            let reviews = row.map_or(0, |row| row.reviews);
+            let successful = row.map_or(0, |row| row.successful);
+            DayBar {
+                label: day.format("%d.%m").to_string(),
+                reviews,
+                percent: (reviews * 100 / max) as u32,
+                success_percent: (successful * 100 / max) as u32,
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    fn day(ymd: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(ymd, "%Y-%m-%d").expect("корректная дата в тесте")
+    }
+
+    fn activity(ymd: &str, reviews: i64, successful: i64) -> crate::models::DailyActivity {
+        crate::models::DailyActivity {
+            day: day(ymd),
+            reviews,
+            successful,
+        }
+    }
+
+    #[test]
+    fn graph_covers_exactly_two_weeks() {
+        let bars = build_bars_for(&[], day("2026-09-24"));
+        assert_eq!(bars.len(), 14);
+        assert_eq!(bars.first().unwrap().label, "11.09");
+        assert_eq!(bars.last().unwrap().label, "24.09");
+    }
+
+    #[test]
+    fn days_without_activity_become_zero_bars() {
+        let bars = build_bars_for(&[activity("2026-09-24", 5, 3)], day("2026-09-24"));
+        let total: i64 = bars.iter().map(|bar| bar.reviews).sum();
+        assert_eq!(total, 5, "чужие дни не теряются и лишние не появляются");
+        assert_eq!(bars.iter().filter(|bar| bar.reviews > 0).count(), 1);
+    }
+
+    #[test]
+    fn the_busiest_day_is_the_full_height_bar() {
+        let bars = build_bars_for(
+            &[activity("2026-09-20", 2, 1), activity("2026-09-24", 8, 6)],
+            day("2026-09-24"),
+        );
+        let tallest = bars.iter().max_by_key(|bar| bar.reviews).unwrap();
+        assert_eq!(tallest.reviews, 8);
+        assert_eq!(tallest.percent, 100, "нормировка по максимуму окна");
+        assert_eq!(tallest.success_percent, 75, "6 из 8");
+    }
+
+    #[test]
+    fn activity_outside_the_window_is_ignored() {
+        // Записи старше 14 дней не должны попадать в график: окно
+        // фиксированное, иначе график рос бы бесконечно.
+        let bars = build_bars_for(
+            &[activity("2020-01-01", 100, 100), activity("2026-09-24", 1, 1)],
+            day("2026-09-24"),
+        );
+        let total: i64 = bars.iter().map(|bar| bar.reviews).sum();
+        assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn empty_history_gives_zero_bars_not_a_division_by_zero() {
+        let bars = build_bars_for(&[], day("2026-09-24"));
+        assert!(bars.iter().all(|bar| bar.reviews == 0 && bar.percent == 0));
+    }
+
+    #[test]
+    fn successful_never_exceeds_total() {
+        // Приходит из SQL; если бы счётчики разошлись, столбик успеха
+        // оказался бы выше основного — график врёт.
+        let bars = build_bars_for(
+            &[activity("2026-09-24", 10, 4), activity("2026-09-23", 3, 3)],
+            day("2026-09-24"),
+        );
+        for bar in &bars {
+            assert!(
+                bar.success_percent <= bar.percent,
+                "{bar:?}: успехов больше, чем попыток"
+            );
+        }
+    }
+
+    #[test]
+    fn percent_is_never_above_one_hundred() {
+        let bars = build_bars_for(
+            &[activity("2026-09-24", 1_000, 1_000), activity("2026-09-23", 1, 0)],
+            day("2026-09-24"),
+        );
+        assert!(bars.iter().all(|bar| bar.percent <= 100));
+        assert!(bars.iter().all(|bar| bar.success_percent <= 100));
+    }
+}
 
 /// Столбик графика активности за последние дни.
 #[derive(Debug, Clone)]
@@ -212,29 +337,4 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
     (status, axum::Json(body))
 }
 
-/// Строит график активности за 14 дней: пропуски заполняются нулями.
-fn build_bars(activity: &[crate::models::DailyActivity]) -> Vec<DayBar> {
-    let today = today();
-    let start = today - chrono::Days::new(13);
-    let max = activity
-        .iter()
-        .map(|row| row.reviews)
-        .max()
-        .unwrap_or(0)
-        .max(1);
 
-    (0..14)
-        .map(|offset| {
-            let day = start + chrono::Days::new(offset);
-            let row = activity.iter().find(|row| row.day == day);
-            let reviews = row.map_or(0, |row| row.reviews);
-            let successful = row.map_or(0, |row| row.successful);
-            DayBar {
-                label: day.format("%d.%m").to_string(),
-                reviews,
-                percent: (reviews * 100 / max) as u32,
-                success_percent: (successful * 100 / max) as u32,
-            }
-        })
-        .collect()
-}

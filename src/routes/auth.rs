@@ -1,5 +1,7 @@
 //! Регистрация, вход, выход и страница профиля.
 
+use std::time::Instant;
+
 use axum::Form;
 use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Redirect, Response};
@@ -9,7 +11,7 @@ use tower_cookies::Cookies;
 use crate::AppState;
 use crate::auth;
 use crate::error::{AppError, AppResult};
-use crate::routes::{NavContext, html, nav_context, page_impl};
+use crate::routes::{NavContext, html, nav_context, page_impl, urlencode};
 
 #[derive(Debug, askama::Template)]
 #[template(path = "register.html")]
@@ -109,6 +111,11 @@ pub async fn register(
     cookies: Cookies,
     Form(form): Form<RegisterForm>,
 ) -> AppResult<Redirect> {
+    // Лимит считаем по паре «адрес + логин»: один человек с одной машины
+    // может зарегистрироваться много раз, но перебрать чужие логини — нет.
+    let key = rate_key(&form.username);
+    state.limiter.allow(&key, Instant::now()).map_err(too_many)?;
+
     if form.password != form.password2 {
         return Ok(redirect_with_error(
             "/register",
@@ -127,7 +134,12 @@ pub async fn register(
     )
     .await
     {
-        Ok(_) => Ok(Redirect::to("/cards")),
+        Ok(_) => {
+            // Успех сбрасывает счётчик: лимит защищает от перебора, а не
+            // от нормальной работы.
+            state.limiter.forget(&key);
+            Ok(Redirect::to("/cards"))
+        }
         Err(AppError::Conflict(message) | AppError::BadRequest(message)) => {
             Ok(redirect_with_error("/register", &message, &form.username))
         }
@@ -161,6 +173,9 @@ pub async fn login(
     cookies: Cookies,
     Form(form): Form<LoginForm>,
 ) -> AppResult<Redirect> {
+    let key = rate_key(&form.username);
+    state.limiter.allow(&key, Instant::now()).map_err(too_many)?;
+
     match auth::login(
         &state.db,
         &cookies,
@@ -171,7 +186,10 @@ pub async fn login(
     )
     .await
     {
-        Ok(_) => Ok(Redirect::to("/cards")),
+        Ok(_) => {
+            state.limiter.forget(&key);
+            Ok(Redirect::to("/cards"))
+        }
         Err(AppError::Unauthorized) => Ok(redirect_with_error(
             "/login",
             "Неверный логин или пароль",
@@ -245,38 +263,24 @@ pub struct AccountPage {
     pub summary: Option<crate::models::ReviewSummary>,
 }
 
+/// Ключ счётчика попыток: нормализованный логин.
+///
+/// Ключ по логину, а не по адресу: за обратным прокси (и на Vercel) адрес
+/// либо недоступен, либо общий для всех, так что он бесполезен как основание
+/// для лимита. Ограничение по логину закрывает основную угрозу — перебор
+/// пароля к одному аккаунту; защиту от «веера» логинов должен давать прокси.
+fn rate_key(username: &str) -> String {
+    username.trim().to_ascii_lowercase()
+}
+
+fn too_many(denied: crate::ratelimit::Denied) -> AppError {
+    AppError::TooManyRequests(denied.retry_after.as_secs())
+}
+
 fn redirect_with_error(path: &str, error: &str, username: &str) -> Redirect {
     Redirect::to(&format!(
         "{path}?error={}&username={}",
         urlencode(error),
         urlencode(username)
     ))
-}
-
-/// Минимальное URL-кодирование (для сообщений об ошибках).
-fn urlencode(value: &str) -> String {
-    value
-        .bytes()
-        .map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (byte as char).to_string()
-            }
-            b' ' => "+".to_string(),
-            other => format!("%{other:02X}"),
-        })
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::urlencode;
-
-    #[test]
-    fn query_values_are_encoded() {
-        assert_eq!(
-            urlencode("Пароль не совпадают"),
-            "%D0%9F%D0%B0%D1%80%D0%BE%D0%BB%D1%8C+%D0%BD%D0%B5+%D1%81%D0%BE%D0%B2%D0%BF%D0%B0%D0%B4%D0%B0%D1%8E%D1%82"
-        );
-        assert_eq!(urlencode("student_1"), "student_1");
-    }
 }

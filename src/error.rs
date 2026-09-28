@@ -35,6 +35,10 @@ pub enum AppError {
     #[error("такая запись уже существует")]
     Conflict(String),
 
+    /// Слишком много попыток. `retry_after` — сколько секунд ждать.
+    #[error("слишком много попыток, повторите через {0} с")]
+    TooManyRequests(u64),
+
     #[error("внутренняя ошибка сервера: {0}")]
     Internal(String),
 }
@@ -49,6 +53,7 @@ impl AppError {
             AppError::Unauthorized => StatusCode::UNAUTHORIZED,
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AppError::Conflict(_) => StatusCode::CONFLICT,
+            AppError::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
         }
     }
 
@@ -58,7 +63,12 @@ impl AppError {
             AppError::NotFound => "Страница не найдена".to_string(),
             AppError::Unauthorized => "Войдите или зарегистрируйтесь, чтобы продолжить".to_string(),
             AppError::BadRequest(msg) | AppError::Conflict(msg) => msg.clone(),
-            AppError::Database(err) => format!("База данных недоступна: {err}"),
+            AppError::TooManyRequests(seconds) => {
+                format!("Слишком много попыток. Повторите через {seconds} с")
+            }
+            // Текст ошибки БД клиенту не показываем: он раскрывает
+            // структуру соединения, версии драйвера и имена хостов.
+            AppError::Database(_) => "База данных недоступна. Попробуйте позже".to_string(),
             AppError::Migration(err) => format!("Не удалось применить миграции: {err}"),
             _ => "Внутренняя ошибка сервера. Попробуйте позже".to_string(),
         }
@@ -91,12 +101,26 @@ impl IntoResponse for AppError {
             status: status.as_u16(),
             message: self.public_message(),
         };
-        (
-            status,
-            Html(body.render().unwrap_or_else(|_| fallback(status))),
-        )
-            .into_response()
+        let response = (status, Html(body.render().unwrap_or_else(|_| fallback(status))))
+            .into_response();
+        attach_retry_after(response, &self)
     }
+}
+
+/// Добавляет `Retry-After` при 429.
+///
+/// Заголовок обязателен: без него клиент не знает, когда можно повторить,
+/// и просто долбит форму, удерживая лимит в трюме.
+fn attach_retry_after(mut response: Response, error: &AppError) -> Response {
+    if let AppError::TooManyRequests(seconds) = error {
+        let value = seconds.to_string();
+        if let Ok(header) = axum::http::HeaderValue::from_str(&value) {
+            response
+                .headers_mut()
+                .insert(axum::http::header::RETRY_AFTER, header);
+        }
+    }
+    response
 }
 
 fn fallback(status: StatusCode) -> String {
@@ -132,13 +156,15 @@ impl IntoResponse for ApiError {
             AppError::Unauthorized => "unauthorized",
             AppError::BadRequest(_) => "bad_request",
             AppError::Conflict(_) => "conflict",
+            AppError::TooManyRequests(_) => "too_many_requests",
             _ => "internal_error",
         };
         let body = ApiErrorBody {
             error: self.0.public_message(),
             code,
         };
-        (self.0.status(), Json(body)).into_response()
+        let response = (self.0.status(), Json(body)).into_response();
+        attach_retry_after(response, &self.0)
     }
 }
 
@@ -155,4 +181,133 @@ pub fn handle_panic(_panic: Box<dyn std::any::Any + Send + 'static>) -> Response
 /// что и обработчик `AppError::NotFound`.
 pub async fn not_found() -> Response {
     AppError::NotFound.into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn statuses_match_the_error_kind() {
+        assert_eq!(AppError::NotFound.status(), StatusCode::NOT_FOUND);
+        assert_eq!(AppError::Unauthorized.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            AppError::BadRequest("x".into()).status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            AppError::Conflict("x".into()).status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            AppError::TooManyRequests(60).status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+
+    #[test]
+    fn database_failures_do_not_leak_internals() {
+        // Текст ошибки драйвера раскрывает хост, порт и версию, поэтому
+        // наружу уходит только короткая фраза.
+        for inner in [
+            sqlx::Error::PoolTimedOut,
+            sqlx::Error::RowNotFound,
+            sqlx::Error::ColumnNotFound("secret_column".into()),
+        ] {
+            let error = AppError::Database(inner);
+            assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
+            let message = error.public_message();
+            assert!(message.contains("База данных недоступна"), "{message}");
+            assert!(
+                !message.contains("pool timed out")
+                    && !message.contains("secret_column")
+                    && !message.contains("row not found"),
+                "внутренние детали не показываем: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn migration_failures_do_not_leak_the_migration_text() {
+        let error = AppError::Migration(sqlx::migrate::MigrateError::VersionMismatch(7));
+        let message = error.public_message();
+        assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(!message.contains("VersionMismatch"), "{message}");
+    }
+
+    #[test]
+    fn internal_errors_are_generic() {
+        let error = AppError::Internal("секретный путь /etc/passwd".into());
+        assert!(
+            !error.public_message().contains("/etc/passwd"),
+            "сообщение: {}",
+            error.public_message()
+        );
+    }
+
+    #[test]
+    fn client_errors_keep_their_message() {
+        let error = AppError::BadRequest("Слово длиннее 100 символов".into());
+        assert_eq!(error.public_message(), "Слово длиннее 100 символов");
+    }
+
+    #[test]
+    fn rate_limit_message_states_the_wait() {
+        let error = AppError::TooManyRequests(120);
+        assert!(error.public_message().contains("120"));
+    }
+
+    #[test]
+    fn html_error_page_carries_status_and_message() {
+        let response = AppError::NotFound.into_response();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn rate_limited_response_sends_retry_after() {
+        let response = AppError::TooManyRequests(90).into_response();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let header = response
+            .headers()
+            .get("retry-after")
+            .expect("без Retry-After клиент не знает, когда повторить");
+        assert_eq!(header, "90");
+    }
+
+    #[test]
+    fn other_errors_have_no_retry_after_header() {
+        for make in [
+            || AppError::NotFound,
+            || AppError::Unauthorized,
+            || AppError::BadRequest("x".into()),
+        ] {
+            let response = make().into_response();
+            assert!(
+                response.headers().get("retry-after").is_none(),
+                "лишний заголовок у {response:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn api_error_body_carries_a_machine_code() {
+        let response = ApiError::from(AppError::NotFound).into_response();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn api_rate_limit_is_marked_with_its_own_code() {
+        let response = ApiError::from(AppError::TooManyRequests(30)).into_response();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            response.headers().get("retry-after").map(|v| v.to_str().ok()),
+            Some(Some("30"))
+        );
+    }
+
+    #[test]
+    fn panic_handler_hides_the_payload() {
+        let response = handle_panic(Box::new("секретный хеш пароля"));
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
 }

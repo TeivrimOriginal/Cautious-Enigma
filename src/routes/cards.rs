@@ -9,8 +9,8 @@ use serde::Deserialize;
 use crate::auth::Profile;
 use crate::error::{AppError, AppResult};
 use crate::models::CardRow;
-use crate::routes::{NavContext, html, nav_context, page_impl, today};
-use crate::{AppState, queries, stats};
+use crate::routes::{NavContext, html, nav_context, page_impl, today, urlencode};
+use crate::{AppState, models, queries, queue, stats};
 
 #[derive(Debug, askama::Template)]
 #[template(path = "cards.html")]
@@ -58,10 +58,16 @@ pub struct CardView {
 }
 
 impl CardView {
-    fn new(row: &CardRow, today: NaiveDate) -> Self {
-        let is_due = row.due_date.is_some_and(|due| due <= today);
+    /// Представление строки базы для шаблона.
+    ///
+    /// Публичная, потому что правила «просрочена / сегодня / не назначена»
+    /// и признак `is_due` — продуктовое поведение, а не деталь рендера:
+    /// их должен проверять `queue`, а не только шаблон.
+    pub fn new(row: &CardRow, today: NaiveDate) -> Self {
+        // Признаки «должна повторяться» и «просрочена» берём из `queue`,
+        // иначе страница и очередь разойдутся по смыслу.
         let due_text = match row.due_date {
-            Some(due) if due < today => "просрочена".to_string(),
+            Some(due) if queue::is_overdue(Some(due), today) => "просрочена".to_string(),
             Some(due) if due == today => "сегодня".to_string(),
             Some(due) => due.format("%d.%m.%Y").to_string(),
             None => "не назначена".to_string(),
@@ -80,7 +86,7 @@ impl CardView {
             due_text,
             mastery,
             mastery_text: format!("{mastery:.0}"),
-            is_due,
+            is_due: queue::is_due(row.due_date, today),
         }
     }
 }
@@ -94,6 +100,8 @@ pub struct Feedback {
     /// `1` — повторять только слабые слова, вне очереди по дате.
     #[serde(default)]
     weak: Option<String>,
+    #[serde(default)]
+    edited: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,6 +118,16 @@ pub struct NewCardForm {
 pub struct ReviewForm {
     #[serde(default)]
     quality: u8,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EditCardForm {
+    #[serde(default)]
+    front: String,
+    #[serde(default)]
+    back: String,
+    #[serde(default)]
+    example: Option<String>,
 }
 
 pub async fn index(
@@ -156,9 +174,10 @@ pub async fn index(
     page.learned = summary.learned_cards;
     page.new_cards = summary.new_cards;
     page.error = feedback.error.unwrap_or_default();
-    page.notice = match feedback.added.as_deref() {
-        Some("1") => "Карточка добавлена".to_string(),
-        Some("exists") => "Такое слово уже есть в карточках".to_string(),
+    page.notice = match (feedback.added.as_deref(), feedback.edited.as_deref()) {
+        (Some("1"), _) => "Карточка добавлена".to_string(),
+        (Some("exists"), _) => "Такое слово уже есть в карточках".to_string(),
+        (_, Some("1")) => "Карточка обновлена".to_string(),
         _ => String::new(),
     };
     page.weak_mode = weak_mode;
@@ -170,26 +189,58 @@ pub async fn create(
     profile: Profile,
     Form(form): Form<NewCardForm>,
 ) -> AppResult<Redirect> {
-    let front = form.front.trim();
-    let back = form.back.trim();
-    let example = form
-        .example
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
+    // Проверка и обрезка — в одном месте с JSON API, иначе формы и API
+    // рано или поздно начнут принимать разные данные.
+    let input = match models::validate_card(&form.front, &form.back, form.example.as_deref()) {
+        Ok(input) => input,
+        Err(AppError::BadRequest(message)) => {
+            return Ok(Redirect::to(&format!(
+                "/cards?error={}",
+                urlencode(&message)
+            )));
+        }
+        Err(err) => return Err(err),
+    };
 
-    if front.is_empty() || back.is_empty() {
-        return Ok(Redirect::to("/cards?error=Заполните+слово+и+перевод"));
-    }
-    if front.chars().count() > 100 || back.chars().count() > 200 {
-        return Ok(Redirect::to(
-            "/cards?error=Слишком+длинный+слово+или+перевод",
-        ));
-    }
-
-    let inserted = queries::insert_card(&state.db, profile.id, front, back, example).await?;
+    // `insert_checked_card`: вход уже проверен выше, повторно валидировать
+    // те же строки незачем.
+    let inserted = queries::insert_checked_card(&state.db, profile.id, &input).await?;
     let flag = if inserted { "1" } else { "exists" };
     Ok(Redirect::to(&format!("/cards?added={flag}")))
+}
+
+/// Правка карточки: слово, перевод, пример.
+///
+/// Отдельный маршрут вместо переиспользования `create`, чтобы состояние
+/// SM-2 и дата повторения не потерялись при правке текста.
+pub async fn update(
+    State(state): State<AppState>,
+    profile: Profile,
+    Path(id): Path<i64>,
+    Form(form): Form<EditCardForm>,
+) -> AppResult<Redirect> {
+    let input = match models::validate_card(&form.front, &form.back, form.example.as_deref()) {
+        Ok(input) => input,
+        Err(AppError::BadRequest(message)) => {
+            return Ok(Redirect::to(&format!("/cards?error={}", urlencode(&message))));
+        }
+        Err(err) => return Err(err),
+    };
+
+    if !queries::update_card(
+        &state.db,
+        profile.id,
+        id,
+        &input.front,
+        &input.back,
+        input.example.as_deref(),
+    )
+    .await?
+    {
+        return Ok(Redirect::to("/cards?error=Карточка+не+найдена"));
+    }
+
+    Ok(Redirect::to("/cards?edited=1"))
 }
 
 /// Применяет оценку повторения и возвращает к списку карточек.

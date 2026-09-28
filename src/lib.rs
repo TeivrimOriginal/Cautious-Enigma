@@ -9,6 +9,8 @@ pub mod db;
 pub mod error;
 pub mod models;
 pub mod queries;
+pub mod queue;
+pub mod ratelimit;
 pub mod routes;
 pub mod seed;
 pub mod sm2;
@@ -37,6 +39,9 @@ pub const APP_JS: &str = include_str!("../static/app.js");
 pub struct AppState {
     pub db: sqlx::PgPool,
     pub cfg: Arc<Config>,
+    /// Счётчик попыток входа и регистрации. Живёт в состоянии, а не в
+    /// статике, чтобы тесты поднимали независимый счётчик на каждый запуск.
+    pub limiter: Arc<ratelimit::RateLimiter>,
 }
 
 /// Собирает полный роутер приложения.
@@ -62,6 +67,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/cards", get(cards::index))
         .route("/cards", post(cards::create))
         .route("/cards/{id}/review", post(cards::review))
+        .route("/cards/{id}/edit", post(cards::update))
         .route("/cards/{id}/delete", post(cards::delete))
         .route("/dictionary", get(dictionary::index))
         .route("/reading", get(reading::index))
@@ -89,6 +95,7 @@ pub async fn init_state() -> Result<AppState, Box<dyn std::error::Error + Send +
     Ok(AppState {
         db,
         cfg: Arc::new(cfg),
+        limiter: Arc::new(ratelimit::RateLimiter::default()),
     })
 }
 

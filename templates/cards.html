@@ -90,6 +90,15 @@
           <div class="mastery" title="освоено на {{ card.mastery_text }}%"><span style="width: {{ card.mastery }}%"></span></div>
           <span class="tag {% if card.is_due %}due{% endif %}">{{ card.due_text }}</span>
           <span class="tag">повтор: {{ card.interval_text }}</span>
+          <details class="reveal">
+            <summary class="btn ghost small">Изменить</summary>
+            <form method="post" action="/cards/{{ card.id }}/edit" class="edit-grid">
+              <input type="text" name="front" maxlength="100" value="{{ card.front }}" aria-label="Слово" required />
+              <input type="text" name="back" maxlength="200" value="{{ card.back }}" aria-label="Перевод" required />
+              <input type="text" name="example" maxlength="300" value="{{ card.example }}" aria-label="Пример" placeholder="Пример" />
+              <button class="btn small" type="submit">Сохранить</button>
+            </form>
+          </details>
           <form method="post" action="/cards/{{ card.id }}/delete" onsubmit="return confirm('Удалить карточку «{{ card.front }}»?')">
             <button class="btn ghost small" type="submit">Удалить</button>
           </form>

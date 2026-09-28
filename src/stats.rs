@@ -12,12 +12,15 @@ use crate::sm2::Sm2State;
 /// Стрик не прерывается, если сегодня повторений ещё не было, но вчера были:
 /// иначе стрик обнулялся бы каждое утро до первого повторения.
 pub fn current_streak(days: &BTreeSet<NaiveDate>, today: NaiveDate) -> u32 {
-    let yesterday = today.pred_opt().expect("дата вне диапазона chrono");
-    let Some(start) = days
-        .get(&today)
-        .map(|_| today)
-        .or_else(|| days.get(&yesterday).map(|_| yesterday))
-    else {
+    // `today` приходит из `Utc::now()`, но функция публичная и зовётся из
+    // тестов с произвольными датами, включая крайние: паниковать здесь
+    // нельзя, отсутствие «вчера» — просто отсутствие стрика.
+    let yesterday = today.pred_opt();
+    let start = match days.get(&today) {
+        Some(_) => Some(today),
+        None => yesterday.and_then(|yesterday| days.get(&yesterday).map(|_| yesterday)),
+    };
+    let Some(start) = start else {
         return 0;
     };
 
@@ -70,15 +73,25 @@ pub fn mastery_percent(repetitions: i32) -> f64 {
 }
 
 /// Человекочитаемый интервал: «через 1 день», «через 6 дней», «через 3 месяца».
+///
+/// Падежи считаются явно: в диапазоне 21..=60 месяцев округление вниз
+/// («через 0 мес.») выглядело бы как ошибка, поэтому месяц считается как
+/// округлённое вверх значение, а годы — с одним знаком после запятой.
 pub fn format_interval(days: i32) -> String {
     match days {
         d if d <= 0 => "сейчас".to_string(),
         1 => "через 1 день".to_string(),
         2..=4 => format!("через {days} дня"),
         5..=20 => format!("через {days} дней"),
-        21..=60 => format!("через {} мес.", days / 30),
-        61..=365 => format!("через {} мес.", days / 30),
-        _ => format!("через {:.1} года", days as f64 / 365.0),
+        21..=365 => {
+            // Округление вверх: `30 / 30 = 0` превращалось в «через 0 мес.».
+            let months = days / 30 + i32::from(days % 30 > 0);
+            format!("через {months} мес.")
+        }
+        _ => {
+            let years = days as f64 / 365.0;
+            format!("через {years:.1} года")
+        }
     }
 }
 
@@ -342,9 +355,15 @@ pub fn forecast(cards: &[SimCard], today: NaiveDate, days: i32, quality: u8) -> 
     points
 }
 
-/// Итоговый опыт по накопленным счётчикам.///
-/// Считается из того, что уже есть в базе, поэтому переживает
-/// пересчёт и не зависит от того, где был поставлен галочки.
+/// Итоговый опыт по накопленным счётчикам.
+///
+/// Считается из того, что уже есть в базе, поэтому переживает пересчёт и
+/// не зависит от того, где была поставлена галочка.
+///
+/// Счётчики приходят из `COUNT(*)` и могут быть сколь угодно большими,
+/// поэтому сложение идёт в `i64`, а приведение к `i32` насыщающее: обычный
+/// `as i32` перевернул бы значение и показал бы отрицательный опыт вместо
+/// максимального уровня.
 pub fn total_xp(
     successful_reviews: i64,
     failed_reviews: i64,
@@ -353,11 +372,18 @@ pub fn total_xp(
     grammar_correct: i64,
 ) -> i32 {
     let grammar_wrong = (grammar_total - grammar_correct).max(0);
-    (successful_reviews * i64::from(XP_REVIEW_SUCCESS)
-        + failed_reviews * i64::from(XP_REVIEW_FAIL)
-        + cards * i64::from(XP_NEW_CARD)
-        + grammar_correct * i64::from(XP_GRAMMAR_CORRECT)
-        + grammar_wrong * i64::from(XP_GRAMMAR_WRONG)) as i32
+    let total = [
+        (XP_REVIEW_SUCCESS, successful_reviews),
+        (XP_REVIEW_FAIL, failed_reviews),
+        (XP_NEW_CARD, cards),
+        (XP_GRAMMAR_CORRECT, grammar_correct),
+        (XP_GRAMMAR_WRONG, grammar_wrong),
+    ]
+    .into_iter()
+    .fold(0_i64, |sum, (reward, count)| {
+        sum.saturating_add(i64::from(reward).saturating_mul(count.max(0)))
+    });
+    i32::try_from(total).unwrap_or(i32::MAX)
 }
 
 #[cfg(test)]
@@ -371,6 +397,28 @@ mod tests {
 
     fn set(values: &[&str]) -> BTreeSet<NaiveDate> {
         values.iter().map(|v| date(v)).collect()
+    }
+
+    #[test]
+    fn streak_survives_the_last_representable_day() {
+        // `current_streak` брал предыдущий день через `expect`: на
+        // `NaiveDate::MIN` это паника, то есть 500 на живом запросе.
+        assert_eq!(current_streak(&set(&["2026-09-24"]), NaiveDate::MIN), 0);
+        assert_eq!(current_streak(&BTreeSet::new(), NaiveDate::MIN), 0);
+    }
+
+    #[test]
+    fn streak_counts_days_back_to_the_first_representable_one() {
+        // Обход назад упирается в `NaiveDate::MIN` и обязан просто остановиться.
+        let days = set(&["2026-09-24", "2026-09-23", "2026-09-22"]);
+        assert_eq!(current_streak(&days, date("2026-09-24")), 3);
+    }
+
+    #[test]
+    fn streak_ignores_days_far_in_the_past() {
+        // Активность месячной давности не продлевает сегодняшний стрик.
+        let days = set(&["2020-01-01", "2020-01-02", "2020-01-03"]);
+        assert_eq!(current_streak(&days, date("2026-09-24")), 0);
     }
 
     #[test]
@@ -438,6 +486,54 @@ mod tests {
     }
 
     #[test]
+    fn negative_interval_is_not_shown_as_a_wait() {
+        // Отрицательный interval_days возможен только из битой базы, но
+        // показывать пользователю «через -3 дня» нельзя.
+        for days in [-1, -30, i32::MIN] {
+            assert_eq!(format_interval(days), "сейчас", "days={days}");
+        }
+    }
+
+    #[test]
+    fn interval_never_rounds_down_to_zero_months() {
+        // При округлении вниз 21 день превращался в «через 0 мес.».
+        for days in 21..=60 {
+            let text = format_interval(days);
+            assert!(!text.contains("0 мес."), "days={days} -> {text}");
+            assert!(text.contains("мес."), "days={days} -> {text}");
+        }
+    }
+
+    #[test]
+    fn every_interval_reads_as_a_positive_number() {
+        for days in 0..=3_000 {
+            let text = format_interval(days);
+            assert!(!text.contains("-"), "days={days} -> {text}");
+            assert!(!text.contains("через 0 "), "days={days} -> {text}");
+        }
+    }
+
+    #[test]
+    fn interval_past_a_year_is_shown_in_years() {
+        let text = format_interval(730);
+        assert!(text.contains("года"), "text={text}");
+        assert!(format_interval(400).contains("года"));
+    }
+
+    #[test]
+    fn mastery_percent_is_bounded() {
+        // Приходит из базы: отрицательные и огромные значения не должны
+        // давать ни NaN, ни проценты вне 0..=100.
+        for repetitions in [i32::MIN, -5, 0, 1, 4, 5, 6, 1_000, i32::MAX] {
+            let value = mastery_percent(repetitions);
+            assert!(
+                (0.0..=100.0).contains(&value),
+                "repetitions={repetitions} -> {value}"
+            );
+        }
+    }
+
+    #[test]
     fn level_starts_at_one() {
         let progress = level_progress(0);
         assert_eq!(progress.level, 1);
@@ -467,6 +563,83 @@ mod tests {
     #[test]
     fn negative_xp_is_clamped() {
         assert_eq!(level_progress(-50).level, 1);
+    }
+
+    #[test]
+    fn level_progress_is_consistent_for_every_amount_of_xp() {
+        // `in_level` всегда в пределах уровня, `percent` — в 0..=100,
+        // и уровень растёт монотонно.
+        let mut previous_level = 0;
+        for xp in (0..5_000).chain([10_000, 100_000, 1_000_000]) {
+            let progress = level_progress(xp);
+            assert!(progress.level >= previous_level, "xp={xp}");
+            assert!(
+                (0..progress.needed).contains(&progress.in_level),
+                "xp={xp} -> {progress:?}"
+            );
+            assert!(progress.percent <= 100, "xp={xp} -> {progress:?}");
+            assert!(progress.level >= 1, "xp={xp}");
+            previous_level = progress.level;
+        }
+    }
+
+    #[test]
+    fn level_titles_are_never_empty() {
+        for level in 0..40 {
+            assert!(!level_progress(level * 10_000).title().is_empty());
+        }
+        assert_eq!(level_progress(0).title(), "Новичок");
+        assert_eq!(level_progress(1_000_000).title(), "Мастер");
+    }
+
+    #[test]
+    fn total_xp_counts_every_source() {
+        let xp = total_xp(10, 5, 20, 8, 6);
+        assert_eq!(
+            xp,
+            10 * XP_REVIEW_SUCCESS
+                + 5 * XP_REVIEW_FAIL
+                + 20 * XP_NEW_CARD
+                + 6 * XP_GRAMMAR_CORRECT
+                + 2 * XP_GRAMMAR_WRONG
+        );
+    }
+
+    #[test]
+    fn total_xp_of_an_empty_profile_is_zero() {
+        assert_eq!(total_xp(0, 0, 0, 0, 0), 0);
+    }
+
+    #[test]
+    fn total_xp_never_overflows_into_a_negative_value() {
+        // Счётчики приходят из COUNT(*); обычный `as i32` перевернул бы их
+        // и показал бы отрицательный опыт.
+        assert_eq!(total_xp(i64::MAX, i64::MAX, i64::MAX, i64::MAX, i64::MAX), i32::MAX);
+        assert_eq!(total_xp(1_000_000, 0, 0, 0, 0), 10_000_000);
+    }
+
+    #[test]
+    fn total_xp_ignores_negative_counters() {
+        assert_eq!(total_xp(-100, -100, -100, 0, 0), 0);
+        // grammar_correct больше, чем всего упражнений: отрицательная
+        // разница не должна вычитаться из опыта.
+        assert_eq!(total_xp(0, 0, 0, 2, 5), 5 * XP_GRAMMAR_CORRECT);
+    }
+
+    #[test]
+    fn review_xp_matches_the_sm2_success_boundary() {
+        // Граница 2/3 — та же, что в `sm2::Sm2State::review`: оценка 2
+        // это провал, 3 — успех. Расхождение ломает всю экономику.
+        for quality in 0..=2 {
+            assert_eq!(review_xp(quality), XP_REVIEW_FAIL, "quality={quality}");
+        }
+        for quality in 3..=255 {
+            assert_eq!(
+                review_xp(quality),
+                XP_REVIEW_SUCCESS,
+                "quality={quality}"
+            );
+        }
     }
 
     #[test]

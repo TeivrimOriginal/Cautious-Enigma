@@ -200,6 +200,17 @@ a:hover {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
+/* Форма правки карточки внутри её строки в списке. */
+.edit-grid {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
+.edit-grid input {
+  width: 100%;
+}
+
 .metric {
   background: var(--surface);
   border: 1px solid var(--border);

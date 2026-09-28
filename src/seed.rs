@@ -267,6 +267,98 @@ mod tests {
     use super::*;
 
     #[test]
+    fn normalize_strips_punctuation_and_case() {
+        assert_eq!(normalize("Deadline,"), "deadline");
+        // Пунктуация с краёв снимается, внутренняя сохраняется: иначе
+        // «well-known» и «hello, world» не находились бы в словаре.
+        assert_eq!(normalize("  Hello, World!  "), "hello, world");
+        assert_eq!(normalize("it's"), "it's");
+        assert_eq!(normalize("well-known"), "well-known");
+        assert_eq!(normalize("..."), "");
+        assert_eq!(normalize(""), "");
+    }
+
+    #[test]
+    fn normalize_keeps_digits_and_inner_symbols() {
+        assert_eq!(normalize("word2"), "word2");
+        assert_eq!(normalize("«quoted»"), "quoted");
+    }
+
+    #[test]
+    fn lookup_ignores_surrounding_punctuation() {
+        for form in ["deadline", "Deadline", "deadline.", "\"deadline\"", "(deadline)"] {
+            assert_eq!(
+                lookup(form).map(|entry| entry.front.as_str()),
+                Some("deadline"),
+                "form={form}"
+            );
+        }
+    }
+
+    #[test]
+    fn lookup_handles_word_forms() {
+        // Реальные формы из словаря проекта: перевод по клику в текстах
+        // должен работать не только для словарной формы.
+        assert!(lookup("groceries").is_some(), "groceries -> grocery");
+        assert!(lookup("commutes").is_some(), "commutes -> to commute");
+        assert!(lookup("deadlines").is_some(), "deadlines -> deadline");
+    }
+
+    #[test]
+    fn lookup_does_not_match_a_substring() {
+        // Точное слово, а не «вхождение»: иначе по клику находилось бы
+        // первое же слово, начинающееся так же.
+        assert!(lookup("dead").is_none());
+        assert!(lookup("eadline").is_none());
+    }
+
+    #[test]
+    fn candidate_forms_strip_trailing_punctuation_first() {
+        // «books,» в тексте — то же самое слово, что «books».
+        assert!(lookup("recipes,").is_some());
+        assert!(lookup("recipes.").is_some());
+    }
+
+    #[test]
+    fn lookup_of_an_empty_normalized_word_is_none() {
+        for form in ["", "   ", "!!!", "...", "---", "'''"] {
+            assert!(lookup(form).is_none(), "form={form:?}");
+        }
+    }
+
+    #[test]
+    fn dictionary_entries_have_both_directions_filled() {
+        for entry in entries() {
+            assert!(!entry.front.trim().is_empty(), "пустое слово");
+            assert!(!entry.back.trim().is_empty(), "пустой перевод у {}", entry.front);
+        }
+    }
+
+    #[test]
+    fn word_of_the_day_changes_over_the_year() {
+        // Слово дня привязано к номеру дня в году: за год все слова должны
+        // хотя бы раз встретиться, и порядок не должен зависеть от времени суток.
+        let mut seen = std::collections::HashSet::new();
+        let start = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        for offset in 0..366_i64 {
+            let day = start + chrono::Days::new(offset as u64);
+            let entry = word_of_the_day(day).expect("словарь не пуст");
+            seen.insert(entry.front.as_str());
+        }
+        assert!(seen.len() > 50, "за год должно встретиться много слов");
+    }
+
+    #[test]
+    fn word_of_the_day_is_defined_for_every_day_of_the_year() {
+        // 31 декабря: номер дня в году считается от 1 января, и обращение
+        // к 1 января следующего года даёт тот же ключ — падать не должно.
+        for (month, day) in [(1_u32, 1_u32), (2, 29), (12, 31)] {
+            let date = NaiveDate::from_ymd_opt(2028, month, day).unwrap();
+            assert!(word_of_the_day(date).is_some(), "{month}-{day}");
+        }
+    }
+
+    #[test]
     fn dictionary_is_parsed() {
         let dict = dictionary();
         assert!(

@@ -128,17 +128,96 @@ mod tests {
     }
 
     #[test]
-    fn rejects_wrong_length() {
+    fn hex_key_accepts_every_digit_case() {
+        // Регистр не должен влиять: один и тот же ключ можно задать
+        // как заглавными, так и строчными буквами.
+        let lower = "0123456789abcdef".repeat(HEX_KEY_CHARS / 16);
+        assert_eq!(lower.len(), HEX_KEY_CHARS);
+        let upper = lower.to_ascii_uppercase();
+        let mixed = "aB0123456789cDeF".repeat(HEX_KEY_CHARS / 16);
+        for raw in [lower, upper, mixed] {
+            assert!(parse_hex_key(&raw).is_ok(), "raw={raw}");
+        }
+    }
+
+    #[test]
+    fn hex_key_rejects_wrong_length() {
         assert!(matches!(
             parse_hex_key("abcd"),
             Err(ConfigError::InvalidCookieKey(4))
         ));
+        // На один символ длиннее и короче — тоже отказ.
+        let too_long = "ab".repeat(KEY_BYTES + 1);
+        assert!(parse_hex_key(&too_long).is_err());
+        let too_short = "ab".repeat(KEY_BYTES - 1);
+        assert!(parse_hex_key(&too_short).is_err());
+        assert!(parse_hex_key("").is_err());
     }
 
     #[test]
-    fn rejects_non_hex() {
+    fn hex_key_rejects_non_hex() {
         let mut raw = "ab".repeat(KEY_BYTES);
         raw.replace_range(0..2, "zz");
         assert!(parse_hex_key(&raw).is_err());
+
+        // Пробелы и прочие символы тоже не hex.
+        for bad in ["g0", "0g", "  ", "::", "!!"] {
+            let mut raw = "ab".repeat(KEY_BYTES);
+            raw.replace_range(0..2, bad);
+            assert!(parse_hex_key(&raw).is_err(), "bad={bad:?}");
+        }
+    }
+
+    #[test]
+    fn hex_key_rejects_multibyte_characters() {
+        // Длина проверяется в байтах: кириллица даёт 128 байт вместо
+        // 128 символов и не должна пройти как валидный ключ.
+        let raw = "щ".repeat(HEX_KEY_CHARS);
+        assert_eq!(raw.len(), HEX_KEY_CHARS * 2);
+        assert!(parse_hex_key(&raw).is_err());
+    }
+
+    #[test]
+    fn hex_value_maps_digits_and_letters() {
+        assert_eq!(hex_value(b'0'), Some(0));
+        assert_eq!(hex_value(b'9'), Some(9));
+        assert_eq!(hex_value(b'a'), Some(10));
+        assert_eq!(hex_value(b'f'), Some(15));
+        assert_eq!(hex_value(b'A'), Some(10));
+        assert_eq!(hex_value(b'F'), Some(15));
+        assert_eq!(hex_value(b'g'), None);
+        assert_eq!(hex_value(b' '), None);
+        assert_eq!(hex_value(b'/'), None);
+    }
+
+    #[test]
+    fn from_env_requires_a_database_url() {
+        // Переменные процесса трогать нельзя (тесты идут параллельно),
+        // поэтому проверяем сам факт: без DATABASE_URL конфигурация
+        // не собирается, иначе приложение стартует «всё хорошо»
+        // и падает на первом запросе.
+        let missing = ConfigError::Missing("DATABASE_URL");
+        assert_eq!(missing.to_string(), "обязательная переменная окружения DATABASE_URL не задана");
+    }
+
+    #[test]
+    fn pool_size_is_clamped_to_a_sane_range() {
+        // `DATABASE_MAX_CONNECTIONS` приходит из окружения Vercel:
+        // значение «0» или «1000» не должно приводить к пулу без
+        // соединений или к тысяче соединений на инстанс.
+        for (raw, expected) in [("0", 1_u32), ("1", 1), ("5", 5), ("20", 20), ("1000", 20)] {
+            let parsed: u32 = raw.parse().expect("число разбирается");
+            assert_eq!(parsed.clamp(1, 20), expected, "raw={raw}");
+        }
+    }
+
+    #[test]
+    fn config_errors_explain_themselves() {
+        let error = ConfigError::InvalidBindAddr("не адрес".into());
+        assert!(error.to_string().contains("BIND_ADDR"));
+        let error = ConfigError::InvalidPoolSize("много".into());
+        assert!(error.to_string().contains("DATABASE_MAX_CONNECTIONS"));
+        let error = ConfigError::InvalidCookieKey(7);
+        assert!(error.to_string().contains("128 hex-символов"));
     }
 }

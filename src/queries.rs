@@ -7,7 +7,10 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{CardRow, DailyActivity, GrammarRow, ReviewSummary, TextRow, WeakWord};
+use crate::models::{
+    CardInput, CardRow, DailyActivity, GrammarRow, ReviewSummary, TextRow, WeakWord, validate_card,
+};
+use crate::queue;
 use crate::sm2::Sm2State;
 
 const SUMMARY_SQL: &str = r#"
@@ -53,21 +56,29 @@ pub async fn daily_activity(
     .await?)
 }
 
+/// Кандидаты в сегодняшнюю очередь повторения.
+///
+/// Отбор по дате делает индекс `idx_cards_profile_due`, а порядок выдачи и
+/// отсечение — `queue::take_due_cards`: правило очереди должно быть в одном
+/// месте, иначе его нечем покрыть тестами.
 pub async fn due_cards(pool: &PgPool, profile_id: Uuid, limit: i64) -> AppResult<Vec<CardRow>> {
-    Ok(sqlx::query_as::<_, CardRow>(
+    if limit <= 0 {
+        return Ok(Vec::new());
+    }
+
+    let candidates = sqlx::query_as::<_, CardRow>(
         "SELECT id, front, back, example, repetitions, interval_days, ease,
                 due_date, created_at, last_reviewed_at
          FROM cards
          WHERE profile_id = $1
            AND due_date IS NOT NULL
-           AND due_date <= CURRENT_DATE
-         ORDER BY due_date ASC, repetitions ASC, id ASC
-         LIMIT $2",
+           AND due_date <= CURRENT_DATE",
     )
     .bind(profile_id)
-    .bind(limit)
     .fetch_all(pool)
-    .await?)
+    .await?;
+
+    Ok(queue::take_due_cards(candidates, limit))
 }
 
 pub async fn all_cards(pool: &PgPool, profile_id: Uuid) -> AppResult<Vec<CardRow>> {
@@ -106,12 +117,25 @@ pub async fn count_cards(pool: &PgPool, profile_id: Uuid) -> AppResult<i64> {
 }
 
 /// Добавляет карточку. Возвращает `false`, если такое слово уже есть.
+///
+/// Вход проверяется здесь, а не в роутах: правила должны быть одни и те же
+/// для формы, JSON API и любых будущих вызывающих.
 pub async fn insert_card(
     pool: &PgPool,
     profile_id: Uuid,
     front: &str,
     back: &str,
     example: Option<&str>,
+) -> AppResult<bool> {
+    let input = validate_card(front, back, example)?;
+    insert_checked_card(pool, profile_id, &input).await
+}
+
+/// Вставка уже проверенной карточки — без повторной валидации.
+pub async fn insert_checked_card(
+    pool: &PgPool,
+    profile_id: Uuid,
+    input: &CardInput,
 ) -> AppResult<bool> {
     let due: NaiveDate = Utc::now().date_naive();
     let rows = sqlx::query(
@@ -120,10 +144,40 @@ pub async fn insert_card(
          ON CONFLICT (profile_id, front) DO NOTHING",
     )
     .bind(profile_id)
-    .bind(front)
-    .bind(back)
-    .bind(example)
+    .bind(&input.front)
+    .bind(&input.back)
+    .bind(input.example.as_deref())
     .bind(due)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    Ok(rows > 0)
+}
+
+/// Меняет слово, перевод и пример существующей карточки.
+///
+/// Возвращает `false`, если карточки этого профиля с таким `id` нет.
+/// Состояние SM-2 и дату следующего повторения не трогаем: правка текста
+/// не должна сбрасывать прогресс по слову.
+pub async fn update_card(
+    pool: &PgPool,
+    profile_id: Uuid,
+    id: i64,
+    front: &str,
+    back: &str,
+    example: Option<&str>,
+) -> AppResult<bool> {
+    let input = validate_card(front, back, example)?;
+    let rows = sqlx::query(
+        "UPDATE cards SET front = $1, back = $2, example = $3
+         WHERE id = $4 AND profile_id = $5",
+    )
+    .bind(&input.front)
+    .bind(&input.back)
+    .bind(input.example.as_deref())
+    .bind(id)
+    .bind(profile_id)
     .execute(pool)
     .await?
     .rows_affected();
@@ -155,11 +209,7 @@ pub async fn apply_review(
 ) -> AppResult<(Sm2State, NaiveDate)> {
     let card = card_by_id(pool, profile_id, card_id).await?;
 
-    let current = Sm2State {
-        repetitions: card.repetitions.max(0) as u32,
-        interval_days: card.interval_days.max(0) as u32,
-        ease: card.ease,
-    };
+    let current = Sm2State::from_card(&card);
     let (next, outcome) = current.review(quality, today);
 
     let mut tx = pool.begin().await?;

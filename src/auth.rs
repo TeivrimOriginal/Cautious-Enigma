@@ -32,6 +32,9 @@ pub const PROFILE_COOKIE: &str = LEGACY_PROFILE_COOKIE;
 /// Сколько живёт сессия без повторного входа.
 const SESSION_TTL_DAYS: i64 = 30;
 
+/// Границы имени гостя. Совпадают с `CHECK` в миграции `0001_init.sql`.
+const GUEST_NAME_LEN: (usize, usize) = (1, 40);
+
 /// Минимальная длина пароля.
 pub const MIN_PASSWORD_LEN: usize = 8;
 /// Допустимая длина логина.
@@ -90,6 +93,26 @@ pub fn validate_password(password: &str) -> Result<(), AppError> {
         )));
     }
     Ok(())
+}
+
+/// Проверяет имя гостя: 1–40 символов после обрезки пробелов.
+///
+/// Границы совпадают с `CHECK` в миграции `0001_init.sql`: если бы проверка
+/// была мягче, база вернула бы ошибку ConstraintViolation вместо понятного
+/// 400, а если строже — гость с валидным именем получил бы отказ.
+pub fn validate_guest_name(name: &str) -> Result<String, AppError> {
+    let name = name.trim();
+    let len = name.chars().count();
+    if len < GUEST_NAME_LEN.0 {
+        return Err(AppError::BadRequest("Введите имя".into()));
+    }
+    if len > GUEST_NAME_LEN.1 {
+        return Err(AppError::BadRequest(format!(
+            "Имя не длиннее {} символов",
+            GUEST_NAME_LEN.1
+        )));
+    }
+    Ok(name.to_string())
 }
 
 type LoginRow = (Uuid, String, Option<String>, DateTime<Utc>, Option<String>);
@@ -302,13 +325,7 @@ pub async fn login_as_guest(
     secure: bool,
     name: &str,
 ) -> Result<Profile, AppError> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err(AppError::BadRequest("Введите имя".into()));
-    }
-    if name.chars().count() > 40 {
-        return Err(AppError::BadRequest("Имя не длиннее 40 символов".into()));
-    }
+    let name = validate_guest_name(name)?;
 
     // Тот же браузер возвращает тот же токен: обновляем имя, а не плодим дубли.
     if let Some(existing) = session_profile_id(pool, cookies, key).await {
@@ -316,7 +333,7 @@ pub async fn login_as_guest(
             "UPDATE profiles SET name = $1 WHERE id = $2
                  RETURNING id, name, username, created_at",
         )
-        .bind(name)
+        .bind(&name)
         .bind(existing)
         .fetch_optional(pool)
         .await?;
@@ -576,6 +593,138 @@ mod tests {
         );
         assert!(validate_username("имя").is_err(), "только латиница");
         assert!(validate_username("name with space").is_err());
+    }
+
+    #[test]
+    fn username_boundaries_are_inclusive() {
+        // Границы 3 и 32 символа входят в допустимые: ровно на краях
+        // логин ещё валиден.
+        assert!(validate_username(&"a".repeat(3)).is_ok(), "3 символа");
+        assert!(validate_username(&"a".repeat(32)).is_ok(), "32 символа");
+        assert!(validate_username("ab").is_err());
+        assert!(validate_username(&"a".repeat(33)).is_err());
+    }
+
+    #[test]
+    fn username_length_counts_characters_not_bytes() {
+        // Латиница в UTF-8 однобайтовая, поэтому проверяем именно символы:
+        // обрезка по байтам отрезала бы часть валидного логина.
+        let long = "ё".repeat(32);
+        assert_eq!(long.len(), 64);
+        assert!(validate_username(&long).is_err(), "кириллица недопустима");
+        let ascii = "a".repeat(32);
+        assert_eq!(ascii.len(), 32);
+        assert!(validate_username(&ascii).is_ok());
+    }
+
+    #[test]
+    fn username_does_not_accept_shell_or_sql_metacharacters() {
+        for name in [
+            "'; DROP TABLE profiles; --",
+            "user$(whoami)",
+            "`id`",
+            "../../etc/passwd",
+            "user|name",
+            "user\nname",
+        ] {
+            assert!(validate_username(name).is_err(), "name={name:?}");
+        }
+    }
+
+    #[test]
+    fn guest_name_rules() {
+        assert_eq!(validate_guest_name("  Аня  ").unwrap(), "Аня");
+        assert!(validate_guest_name("").is_err());
+        assert!(validate_guest_name("   ").is_err(), "пробелы не имя");
+    }
+
+    #[test]
+    fn guest_name_boundaries_match_the_database_check() {
+        assert!(validate_guest_name(&"я".repeat(40)).is_ok(), "40 символов");
+        assert!(validate_guest_name(&"я".repeat(41)).is_err(), "41 символ");
+        // Границы считаются в символах: 40 кириллических букв — это
+        // 80 байт, но CHECK в базе тоже считает символы.
+        assert_eq!("я".repeat(40).len(), 80);
+    }
+
+    #[test]
+    fn guest_name_allows_html_but_not_empty() {
+        // Имя попадает в HTML-шаблон, где его экранирует askama.
+        assert!(validate_guest_name("<script>x</script>").is_ok());
+    }
+
+    #[test]
+    fn session_left_never_goes_negative() {
+        // Метрики и шапка показывают остаток сессии; отрицательное значение
+        // означало бы «-3 дн. до конца сессии».
+        let now = Utc::now();
+        assert_eq!(session_left(now - ChronoDuration::days(1)), Duration::ZERO);
+        assert_eq!(session_left(now - ChronoDuration::seconds(1)), Duration::ZERO);
+        assert_eq!(session_left(now), Duration::ZERO);
+        assert!(session_left(now + ChronoDuration::hours(1)) > Duration::from_secs(3_590));
+    }
+
+    #[test]
+    fn profile_registration_flag() {
+        let guest = Profile {
+            id: Uuid::nil(),
+            name: "Гость".into(),
+            username: None,
+            created_at: Utc::now(),
+        };
+        assert!(!guest.is_registered());
+
+        let user = Profile {
+            username: Some("student_1".into()),
+            ..guest.clone()
+        };
+        assert!(user.is_registered());
+    }
+
+    #[test]
+    fn maybe_profile_unwraps_to_the_inner_option() {
+        let inner = Profile {
+            id: Uuid::nil(),
+            name: "Гость".into(),
+            username: None,
+            created_at: Utc::now(),
+        };
+
+        assert!(MaybeProfile(None).into_inner().is_none());
+        assert!(MaybeProfile(None).as_ref().is_none());
+
+        let present = MaybeProfile(Some(inner.clone()));
+        assert!(present.as_ref().is_some());
+        assert_eq!(present.into_inner().map(|p| p.name), Some("Гость".into()));
+    }
+
+    #[test]
+    fn password_hash_never_contains_the_password() {
+        // Страховка от опечатки в будущем: хеш не должен содержать
+        // открытый пароль даже частично.
+        let password = "correct-horse-battery-staple";
+        let hash = hash_password(password).unwrap();
+        assert!(!hash.contains(password));
+        assert!(!hash.contains(&password[..10]));
+        assert!(!hash.to_lowercase().contains(&password.to_lowercase()[..8]));
+    }
+
+    #[test]
+    fn verify_password_rejects_a_hash_of_another_password() {
+        let hash = hash_password("first-password").unwrap();
+        assert!(!verify_password("second-password", &hash));
+        // Пароль другого пользователя, даже с тем же хешем соли.
+        assert!(!verify_password("", &hash));
+    }
+
+    #[test]
+    fn verify_password_rejects_a_truncated_hash() {
+        let hash = hash_password("correct-horse-battery").unwrap();
+        let truncated = &hash[..hash.len() / 2];
+        assert!(
+            !verify_password("correct-horse-battery", truncated),
+            "обрезанный хеш не должен проходить проверку"
+        );
     }
 
     #[test]
