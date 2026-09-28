@@ -524,6 +524,65 @@ fn a_deck_can_be_imported_and_exported_back() {
 }
 
 #[test]
+fn study_walks_the_due_queue_one_card_at_a_time() {
+    runtime().block_on(async {
+        let Some(pool) = init_pool().await else {
+            eprintln!("DATABASE_URL не задан — интеграционные тесты пропущены");
+            return;
+        };
+
+        let profile_id = create_profile(&pool, "integration-study").await.unwrap();
+        for index in 0..3 {
+            queries::insert_card(
+                &pool,
+                profile_id,
+                &format!("study-word-{index}"),
+                "перевод",
+                None,
+            )
+            .await
+            .unwrap();
+        }
+
+        let queue = queries::due_cards(&pool, profile_id, 20).await.unwrap();
+        assert_eq!(queue.len(), 3, "все три новые карточки ждут повторения");
+        assert_eq!(queue[0].front, "study-word-0");
+
+        // Последняя карточка захода — «Слово 3 из 3».
+        let (index, card) = linguarust::routes::study::pick(&queue, 2).expect("карточка есть");
+        assert_eq!(index, 2);
+        assert_eq!(card.front, "study-word-2");
+
+        // Номер вне диапазона заворачивается, а не ломает страницу.
+        assert_eq!(
+            linguarust::routes::study::pick(&queue, -1)
+                .expect("карточка есть")
+                .0,
+            2
+        );
+        assert_eq!(
+            linguarust::routes::study::pick(&queue, 99)
+                .expect("карточка есть")
+                .0,
+            0
+        );
+        assert!(linguarust::routes::study::pick(&[], 0).is_none());
+
+        // Оценка переносит карточку из сегодняшней очереди на завтра.
+        let (state, next_due) = queries::apply_review(&pool, profile_id, queue[0].id, 4, today())
+            .await
+            .unwrap();
+        assert_eq!(state.repetitions, 1);
+        assert!(next_due > today());
+
+        let queue = queries::due_cards(&pool, profile_id, 20).await.unwrap();
+        assert_eq!(queue.len(), 2, "повторённая карточка ушла из очереди");
+
+        cleanup(&pool, profile_id).await;
+    });
+}
+
+#[test]
 fn seed_data_is_available() {
     runtime().block_on(async {
         let Some(pool) = init_pool().await else {

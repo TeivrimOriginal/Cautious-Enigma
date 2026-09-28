@@ -204,7 +204,7 @@ async fn health_reports_unavailable_database() {
  * ------------------------------------------------------------------ */
 
 /// Закрытые маршруты, доступные только с сессией.
-const PROTECTED_GET: &[&str] = &["/cards", "/cards/export", "/stats"];
+const PROTECTED_GET: &[&str] = &["/cards", "/cards/export", "/stats", "/study"];
 
 const PROTECTED_POST: &[(&str, &str)] = &[
     ("/cards", "front=test&back=%D1%82%D0%B5%D1%81%D1%82"),
@@ -212,6 +212,7 @@ const PROTECTED_POST: &[(&str, &str)] = &[
     ("/cards/1/edit", "front=test&back=test2"),
     ("/cards/1/delete", ""),
     ("/cards/import", "deck=deadline%3B%D1%81%D1%80%D0%BE%D0%BA"),
+    ("/study/1/review", "quality=4"),
     ("/api/cards", r#"{"front":"test","back":"test"}"#),
     ("/api/goal", r#"{"goal":30}"#),
 ];
@@ -685,6 +686,7 @@ fn every_route_is_registered_in_one_place() {
     let router_block = &lib[router_block_start..];
     for path in [
         "\"/cards\"",
+        "\"/study\"",
         "\"/dictionary\"",
         "\"/reading\"",
         "\"/grammar\"",

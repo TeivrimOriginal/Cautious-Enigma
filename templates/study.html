@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% if !nav.has_profile %}
+  <section class="panel" style="text-align: center;">
+    <h2>Нужен профиль</h2>
+    <p class="muted">Войдите или начните как гость, чтобы повторять слова.</p>
+  </section>
+{% else if finished %}
+  <section class="panel" style="text-align: center;">
+    <h2>На сегодня всё 🎉</h2>
+    <p class="muted">
+      {% if total == 0 %}
+        Карточек к повторению нет. Добавьте слова — они попадут в очередь сразу.
+      {% else %}
+        Заход закончен: {{ position }} из {{ total }}.
+      {% endif %}
+    </p>
+    <a class="btn" href="/study">Начать заново</a>
+    <a class="btn ghost" href="/cards">К карточкам</a>
+  </section>
+{% else %}
+  <section class="panel review-card">
+    <p class="muted small" style="margin: 0;">
+      Слово {{ position }} из {{ total }}{% if repetitions > 0 %} · повторений: {{ repetitions }}{% endif %}
+    </p>
+    <div class="word">
+      {{ front }}
+      <button class="icon-btn" type="button" data-speak="{{ front }}"
+        title="Произнести" aria-label="Произнести">🔊</button>
+    </div>
+
+    <details class="reveal">
+      <summary class="btn ghost">Показать перевод</summary>
+      <div class="answer">{{ back }}</div>
+      {% if !example.is_empty() %}
+        <div class="example">{{ example }}</div>
+      {% endif %}
+    </details>
+
+    <form method="post" action="/study/{{ id }}/review" class="quality-grid">
+      <button class="btn bad" type="submit" name="quality" value="1">Опять</button>
+      <button class="btn warn" type="submit" name="quality" value="3">Сложно</button>
+      <button class="btn soft" type="submit" name="quality" value="4">Нормально</button>
+      <button class="btn good" type="submit" name="quality" value="5">Легко</button>
+    </form>
+
+    <p class="muted small" style="margin-top: 18px; margin-bottom: 0;">
+      После оценки вернёмся к следующему слову. Оценка «Опять» вернёт карточку
+      в очередь на завтра.
+    </p>
+  </section>
+{% endif %}
+{% endblock %}

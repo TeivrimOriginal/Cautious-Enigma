@@ -29,7 +29,7 @@ use tower_http::trace::TraceLayer;
 use crate::config::Config;
 use crate::error::handle_panic;
 use crate::routes::stats as stats_page;
-use crate::routes::{api, auth as auth_pages, cards, dictionary, grammar, home, reading};
+use crate::routes::{api, auth as auth_pages, cards, dictionary, grammar, home, reading, study};
 
 /// Статика встраивается в бинарник: на serverless нет доступа к файловой системе.
 pub const STYLE_CSS: &str = include_str!("../static/style.css");
@@ -72,6 +72,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/cards/{id}/delete", post(cards::delete))
         .route("/cards/export", get(cards::export))
         .route("/cards/import", post(cards::import))
+        .route("/study", get(study::index))
+        .route("/study/{id}/review", post(study::review))
         .route("/dictionary", get(dictionary::index))
         .route("/reading", get(reading::index))
         .route("/reading/{slug}", get(reading::show))

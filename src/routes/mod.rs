@@ -8,6 +8,7 @@ pub mod grammar;
 pub mod home;
 pub mod reading;
 pub mod stats;
+pub mod study;
 
 use chrono::{NaiveDate, Utc};
 
