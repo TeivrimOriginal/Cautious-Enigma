@@ -117,3 +117,104 @@ pub fn init_tracing() {
         .with(fmt::layer().with_target(false))
         .try_init();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Стили и скрипт приходят `include_str!` на этапе сборки, поэтому
+    /// бинарник, у которого они не встроились, упал бы с `include` —
+    /// а вот пустые или обрезанные файлы прошли бы незаметно.
+    #[test]
+    fn styles_and_script_are_embedded() {
+        assert!(STYLE_CSS.len() > 1_000, "стили выглядят пустыми");
+        assert!(APP_JS.len() > 1_000, "скрипт выглядит пустым");
+        assert!(STYLE_CSS.contains("body"), "в стилях нет базовых правил");
+        assert!(APP_JS.contains("DOMContentLoaded"), "скрипт ничего не инициализирует");
+    }
+
+    /// Файл не должен закрываться на середине: обрезанный CSS ломает
+    /// вёрстку, и заметить это можно только глазами.
+    #[test]
+    fn styles_are_not_truncated() {
+        assert!(
+            STYLE_CSS.trim_end().ends_with('}'),
+            "стили кончились на середине блока"
+        );
+    }
+
+    /// Скрипт обёрнут в IIFE, чтобы не выносить функции в глобальную область.
+    /// Обрезанный скрипт потерял бы закрывающую скобку и обрушил бы
+    /// весь следующий код страницы.
+    #[test]
+    fn the_script_is_wrapped_and_balanced() {
+        // Перед IIFE идёт заголовочный комментарий, поэтому ищем обёртку
+        // в тексте, а не в начале файла.
+        assert!(
+            APP_JS.contains("(function () {"),
+            "нет IIFE: начало = {:?}",
+            &APP_JS[..APP_JS.len().min(120)]
+        );
+        assert!(
+            APP_JS.trim_end().ends_with("})();"),
+            "нет закрытия IIFE: конец = {:?}",
+            &APP_JS[APP_JS.len().saturating_sub(40)..]
+        );
+        let opens = APP_JS.matches('{').count();
+        let closes = APP_JS.matches('}').count();
+        assert_eq!(opens, closes, "скобки в скрипте не сбалансированы");
+    }
+
+    /// Скрипт выводит текст в `innerHTML` только через `escapeHtml` —
+    /// это единственная защита от XSS на клиенте, и потерять её молча
+    /// можно, отредактировав шаблон всплывающего окна.
+    #[test]
+    fn the_script_escapes_before_using_inner_html() {
+        let assignments = APP_JS
+            .match_indices("innerHTML =")
+            .map(|(index, _)| &APP_JS[index..(index + 220).min(APP_JS.len())])
+            .collect::<Vec<_>>();
+        assert!(!assignments.is_empty(), "скрипт никуда не пишет разметку");
+
+        for snippet in assignments {
+            // Либо статичная строка без данных, либо только через escapeHtml.
+            let interpolates = snippet.contains("${");
+            let escaped = snippet.contains("escapeHtml(");
+            assert!(
+                !interpolates || escaped,
+                "неэкранированная подстановка в innerHTML: {snippet}"
+            );
+        }
+    }
+
+    /// Роутер собирается из переданного состояния, а не из глобальных
+    /// переменных: иначе тесты поднимали бы чужой пул соединений.
+    ///
+    /// `connect_lazy` требует контекста Tokio, поэтому тест асинхронный.
+    #[tokio::test]
+    async fn the_router_is_built_from_the_given_state() {
+        use sqlx::postgres::PgPoolOptions;
+
+        let config = Config {
+            database_url: "postgres://user:pass@127.0.0.1:1/linguarust".to_string(),
+            cookie_key: tower_cookies::Key::generate(),
+            bind_addr: ([127, 0, 0, 1], 0).into(),
+            max_connections: 1,
+            is_production: false,
+            acquire_timeout: std::time::Duration::from_millis(50),
+        };
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&config.database_url)
+            .expect("ленивый пул создаётся без базы");
+
+        let app = build_router(AppState {
+            db: pool,
+            cfg: Arc::new(config),
+            limiter: Arc::new(ratelimit::RateLimiter::default()),
+        });
+        // `Router` не имеет публичного счётчика маршрутов, поэтому проверяется
+        // сам факт сборки: без состояния роутер собрать нельзя.
+        let _ = app;
+    }
+}

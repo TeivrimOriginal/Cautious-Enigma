@@ -21,6 +21,11 @@ pub enum ConfigError {
     InvalidBindAddr(String),
     #[error("не удалось разобрать DATABASE_MAX_CONNECTIONS: {0}")]
     InvalidPoolSize(String),
+
+    /// `DATABASE_URL` не разбирается драйвером. Сам текст ошибки в
+    /// сообщение не попадает: он может содержать логин и пароль.
+    #[error("не удалось разобрать DATABASE_URL: {0}")]
+    InvalidDatabaseUrl(String),
 }
 
 #[derive(Debug, Clone)]

@@ -69,6 +69,12 @@ impl AppError {
             // Текст ошибки БД клиенту не показываем: он раскрывает
             // структуру соединения, версии драйвера и имена хостов.
             AppError::Database(_) => "База данных недоступна. Попробуйте позже".to_string(),
+            // Текст ошибки драйвера может содержать логин и пароль из
+            // `DATABASE_URL`, поэтому наружу уходит только имя переменной:
+            // детали остаются в `tracing` через `log()`.
+            AppError::Config(crate::config::ConfigError::InvalidDatabaseUrl(_)) => {
+                "Строка подключения к базе задана неверно. Проверьте DATABASE_URL".to_string()
+            }
             AppError::Migration(err) => format!("Не удалось применить миграции: {err}"),
             _ => "Внутренняя ошибка сервера. Попробуйте позже".to_string(),
         }
@@ -303,6 +309,24 @@ mod tests {
             response.headers().get("retry-after").map(|v| v.to_str().ok()),
             Some(Some("30"))
         );
+    }
+
+    #[test]
+    fn a_broken_database_url_names_the_variable_not_the_secret() {
+        // Ошибка драйвера про строку подключения может содержать логин и
+        // пароль: наружу уходит только имя переменной.
+        let error = AppError::Config(crate::config::ConfigError::InvalidDatabaseUrl(
+            "invalid port: s3cr3t".into(),
+        ));
+        assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let message = error.public_message();
+        assert!(message.contains("DATABASE_URL"), "сообщение: {message}");
+        assert!(!message.contains("s3cr3t"), "пароль утёк: {message}");
+        assert!(!message.contains("invalid port"), "детали драйвера: {message}");
+        // Детали остаются в тексте ошибки — они попадают в журнал, а не в HTTP.
+        let internal = error.to_string();
+        assert!(internal.contains("DATABASE_URL"));
+        assert!(internal.contains("s3cr3t"), "в журнале детали нужны: {internal}");
     }
 
     #[test]
