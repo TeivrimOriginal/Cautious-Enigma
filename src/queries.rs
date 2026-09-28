@@ -155,6 +155,61 @@ pub async fn insert_checked_card(
     Ok(rows > 0)
 }
 
+/// Итог импорта колоды в базу.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ImportOutcome {
+    /// Карточек записано.
+    pub added: usize,
+    /// Строк пропущено, потому что такое слово уже было.
+    pub duplicates: usize,
+    /// Строк отвергнуто проверкой ввода (пустое слово, слишком длинное).
+    pub invalid: usize,
+}
+
+/// Загружает колоду в профиль.
+///
+/// Каждая строка идёт через `validate_card`, поэтому файл из чужой колоды
+/// не может положить в базу пустое или слишком длинное слово.
+pub async fn import_cards(
+    pool: &PgPool,
+    profile_id: Uuid,
+    entries: &[crate::anki::DeckEntry],
+) -> AppResult<ImportOutcome> {
+    let mut outcome = ImportOutcome::default();
+    for entry in entries {
+        let input = match validate_card(&entry.front, &entry.back, Some(&entry.example)) {
+            Ok(input) => input,
+            Err(_) => {
+                outcome.invalid += 1;
+                continue;
+            }
+        };
+        if insert_checked_card(pool, profile_id, &input).await? {
+            outcome.added += 1;
+        } else {
+            outcome.duplicates += 1;
+        }
+    }
+    Ok(outcome)
+}
+
+/// Готовит карточки профиля к выгрузке в формате Anki.
+pub async fn export_entries(
+    pool: &PgPool,
+    profile_id: Uuid,
+) -> AppResult<Vec<crate::anki::DeckEntry>> {
+    Ok(all_cards(pool, profile_id)
+        .await?
+        .into_iter()
+        .map(|row| crate::anki::DeckEntry {
+            front: row.front,
+            back: row.back,
+            example: row.example.unwrap_or_default(),
+            tags: String::new(),
+        })
+        .collect())
+}
+
 /// Меняет слово, перевод и пример существующей карточки.
 ///
 /// Возвращает `false`, если карточки этого профиля с таким `id` нет.

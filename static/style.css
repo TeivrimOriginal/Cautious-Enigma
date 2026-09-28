@@ -211,6 +211,18 @@ a:hover {
   width: 100%;
 }
 
+/* Поле загрузки колоды: текст колоды читают глазами, а не в один абзац. */
+.deck-input {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  resize: vertical;
+}
+
+.deck-actions {
+  margin-top: 12px;
+  align-items: center;
+}
+
 .metric {
   background: var(--surface);
   border: 1px solid var(--border);

@@ -3,6 +3,7 @@
 //! Стек: Axum (HTTP) + SQLx (PostgreSQL) + Askama (шаблоны) + минимум JS.
 //! Один и тот же `Router` используется и локальным сервером, и serverless-функцией Vercel.
 
+pub mod anki;
 pub mod auth;
 pub mod config;
 pub mod db;
@@ -69,6 +70,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/cards/{id}/review", post(cards::review))
         .route("/cards/{id}/edit", post(cards::update))
         .route("/cards/{id}/delete", post(cards::delete))
+        .route("/cards/export", get(cards::export))
+        .route("/cards/import", post(cards::import))
         .route("/dictionary", get(dictionary::index))
         .route("/reading", get(reading::index))
         .route("/reading/{slug}", get(reading::show))

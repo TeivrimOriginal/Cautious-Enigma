@@ -2,7 +2,7 @@
 
 use axum::Form;
 use axum::extract::{Path, Query, State};
-use axum::response::{Html, Redirect};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use chrono::NaiveDate;
 use serde::Deserialize;
 
@@ -10,7 +10,7 @@ use crate::auth::Profile;
 use crate::error::{AppError, AppResult};
 use crate::models::CardRow;
 use crate::routes::{NavContext, html, nav_context, page_impl, today, urlencode};
-use crate::{AppState, models, queries, queue, stats};
+use crate::{AppState, anki, models, queries, queue, stats};
 
 #[derive(Debug, askama::Template)]
 #[template(path = "cards.html")]
@@ -102,6 +102,15 @@ pub struct Feedback {
     weak: Option<String>,
     #[serde(default)]
     edited: Option<String>,
+    /// Итог последнего импорта колоды.
+    #[serde(default)]
+    imported: Option<String>,
+    #[serde(default)]
+    duplicates: Option<String>,
+    #[serde(default)]
+    invalid: Option<String>,
+    #[serde(default)]
+    skipped: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,6 +127,14 @@ pub struct NewCardForm {
 pub struct ReviewForm {
     #[serde(default)]
     quality: u8,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImportForm {
+    /// Содержимое колоды: текст, вставленный в форму или пришедший из
+    /// загруженного файла целиком.
+    #[serde(default)]
+    deck: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -173,13 +190,14 @@ pub async fn index(
     page.total = summary.total_cards;
     page.learned = summary.learned_cards;
     page.new_cards = summary.new_cards;
-    page.error = feedback.error.unwrap_or_default();
     page.notice = match (feedback.added.as_deref(), feedback.edited.as_deref()) {
         (Some("1"), _) => "Карточка добавлена".to_string(),
         (Some("exists"), _) => "Такое слово уже есть в карточках".to_string(),
         (_, Some("1")) => "Карточка обновлена".to_string(),
-        _ => String::new(),
+        _ => import_notice(&feedback),
     };
+    // `error` разбираем последним: `import_notice` читает ту же структуру.
+    page.error = feedback.error.clone().unwrap_or_default();
     page.weak_mode = weak_mode;
     html(page)
 }
@@ -262,4 +280,77 @@ pub async fn delete(
 ) -> Result<Redirect, AppError> {
     queries::delete_card(&state.db, profile.id, id).await?;
     Ok(Redirect::to("/cards"))
+}
+
+/// Текст о результате импорта колоды.
+fn import_notice(feedback: &Feedback) -> String {
+    if feedback.imported.is_none() {
+        return String::new();
+    }
+    let count = |value: Option<&str>| value.unwrap_or("0").parse::<usize>().unwrap_or(0);
+    let added = count(feedback.imported.as_deref());
+    let duplicates = count(feedback.duplicates.as_deref());
+    let invalid = count(feedback.invalid.as_deref());
+    let skipped = count(feedback.skipped.as_deref());
+
+    if added == 0 && duplicates == 0 && invalid == 0 && skipped == 0 {
+        return "В файле не нашлось ни одной карточки".to_string();
+    }
+
+    let mut parts = vec![format!("добавлено: {added}")];
+    if duplicates > 0 {
+        parts.push(format!("уже было: {duplicates}"));
+    }
+    if invalid > 0 {
+        parts.push(format!("не прошло проверку: {invalid}"));
+    }
+    if skipped > 0 {
+        parts.push(format!("пропущено строк: {skipped}"));
+    }
+    parts.join(", ")
+}
+
+/// `GET /cards/export` — выгрузка колоды в формате Anki.
+pub async fn export(
+    State(state): State<AppState>,
+    profile: Profile,
+) -> AppResult<Response> {
+    let entries = queries::export_entries(&state.db, profile.id).await?;
+    let body = anki::export(&entries);
+    let filename = format!("linguarust-{}.txt", today());
+
+    let mut response = body.into_response();
+    let headers = response.headers_mut();
+    // `attachment` — иначе браузер откроет файл как страницу, а не сохранит.
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("text/plain;charset=utf-8"),
+    );
+    if let Ok(value) = axum::http::HeaderValue::from_str(&format!(
+        "attachment; filename=\"{filename}\""
+    )) {
+        headers.insert(axum::http::header::CONTENT_DISPOSITION, value);
+    }
+    Ok(response)
+}
+
+/// `POST /cards/import` — загрузка колоды из текста.
+///
+/// Разбор файла — в `anki`, запись — в `queries`; роут только считает итог
+/// и отдаёт его в адресную строку, чтобы результат можно было переслать.
+pub async fn import(
+    State(state): State<AppState>,
+    profile: Profile,
+    Form(form): Form<ImportForm>,
+) -> AppResult<Redirect> {
+    let deck = anki::parse(&form.deck);
+    let outcome = queries::import_cards(&state.db, profile.id, &deck.cards).await?;
+
+    Ok(Redirect::to(&format!(
+        "/cards?imported={}&duplicates={}&invalid={}&skipped={}",
+        outcome.added,
+        outcome.duplicates,
+        outcome.invalid,
+        deck.skipped_rows
+    )))
 }

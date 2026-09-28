@@ -204,13 +204,14 @@ async fn health_reports_unavailable_database() {
  * ------------------------------------------------------------------ */
 
 /// Закрытые маршруты, доступные только с сессией.
-const PROTECTED_GET: &[&str] = &["/cards", "/stats"];
+const PROTECTED_GET: &[&str] = &["/cards", "/cards/export", "/stats"];
 
 const PROTECTED_POST: &[(&str, &str)] = &[
     ("/cards", "front=test&back=%D1%82%D0%B5%D1%81%D1%82"),
     ("/cards/1/review", "quality=4"),
     ("/cards/1/edit", "front=test&back=test2"),
     ("/cards/1/delete", ""),
+    ("/cards/import", "deck=deadline%3B%D1%81%D1%80%D0%BE%D0%BA"),
     ("/api/cards", r#"{"front":"test","back":"test"}"#),
     ("/api/goal", r#"{"goal":30}"#),
 ];
@@ -719,6 +720,81 @@ fn panic_handler_covers_the_whole_router() {
     let catch = lib.find("CatchPanicLayer::custom").expect("слой паники есть");
     let with_state = lib.find(".with_state(state)").expect("состояние есть");
     assert!(catch < with_state, "слой паники применён после маршрутов");
+}
+
+/* ------------------------------------------------------------------ *
+ * Импорт и выгрузка колоды
+ * ------------------------------------------------------------------ */
+
+#[test]
+fn anki_deck_round_trips_through_the_module() {
+    use linguarust::anki::{DeckEntry, export, parse, report};
+
+    let original = vec![
+        DeckEntry {
+            front: "deadline".into(),
+            back: "срок сдачи".into(),
+            example: "до пятницы".into(),
+            tags: "дедлайн".into(),
+        },
+        DeckEntry {
+            front: "profit".into(),
+            back: "прибыль".into(),
+            example: String::new(),
+            tags: String::new(),
+        },
+    ];
+
+    let deck = parse(&export(&original));
+    assert_eq!(deck.cards, original);
+    let summary = report(&deck);
+    assert_eq!(summary.parsed, 2);
+    assert_eq!(summary.rejected, 0);
+}
+
+#[test]
+fn anki_import_never_accepts_a_row_without_a_translation() {
+    use linguarust::anki::{parse, report};
+
+    // Чужая колода может содержать строки-заголовки и пустые строки:
+    // они не должны становиться карточками.
+    let deck = parse("deadline;\n\n;срок сдачи\nprofit;прибыль\n");
+    let summary = report(&deck);
+    assert_eq!(summary.parsed, 1, "только строка с обоими полями");
+    assert_eq!(summary.rejected, 2);
+}
+
+#[test]
+fn anki_export_uses_the_documented_anki_layout() {
+    use linguarust::anki::{DeckEntry, export};
+
+    let text = export(&[DeckEntry {
+        front: "deadline".into(),
+        back: "срок сдачи".into(),
+        example: String::new(),
+        tags: String::new(),
+    }]);
+    for directive in [
+        "#separator:tab",
+        "#html:false",
+        "#notetype column 1",
+        "#deck column 2",
+        "#tags column 3",
+    ] {
+        assert!(text.contains(directive), "нет директивы {directive}");
+    }
+}
+
+#[tokio::test]
+async fn deck_export_requires_a_session() {
+    let (status, body) = get("/cards/export").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "тело: {body}");
+}
+
+#[tokio::test]
+async fn deck_import_requires_a_session() {
+    let (status, body) = send(test_app(), form("/cards/import", "deck=word%3Bword")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "тело: {body}");
 }
 
 /* ------------------------------------------------------------------ *

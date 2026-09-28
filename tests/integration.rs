@@ -473,6 +473,57 @@ fn password_is_stored_only_as_an_argon2_hash() {
 }
 
 #[test]
+fn a_deck_can_be_imported_and_exported_back() {
+    runtime().block_on(async {
+        let Some(pool) = init_pool().await else {
+            eprintln!("DATABASE_URL не задан — интеграционные тесты пропущены");
+            return;
+        };
+
+        let profile_id = create_profile(&pool, "integration-deck").await.unwrap();
+
+        // Anki-файл: три служебные колонки, потом слово, перевод и пример.
+        let mut file = String::new();
+        file.push_str("#separator:tab\n");
+        file.push_str("#notetype column 1\n");
+        file.push_str("#deck column 2\n");
+        file.push_str("#tags column 3\n");
+        file.push_str("Basic\tDefault\tдедлайн\tdeadline\tсрок сдачи\tдо пятницы\n");
+        file.push_str("Basic\tDefault\t\tprofit\tприбыль\t\n");
+        file.push_str("Basic\tDefault\t\tbroken\t\t\n");
+
+        let deck = linguarust::anki::parse(&file);
+        assert_eq!(deck.cards.len(), 3);
+
+        let outcome = queries::import_cards(&pool, profile_id, &deck.cards)
+            .await
+            .unwrap();
+        assert_eq!(outcome.added, 2, "строка без перевода не импортируется");
+        assert_eq!(outcome.invalid, 1, "пустой перевод отвергается проверкой");
+        assert_eq!(outcome.duplicates, 0);
+
+        // Повторный импорт того же файла не создаёт дублей.
+        let again = queries::import_cards(&pool, profile_id, &deck.cards)
+            .await
+            .unwrap();
+        assert_eq!(again.added, 0);
+        assert_eq!(again.duplicates, 2);
+        assert_eq!(queries::count_cards(&pool, profile_id).await.unwrap(), 2);
+
+        // Выгрузка читается обратно тем же разбором.
+        let exported = queries::export_entries(&pool, profile_id).await.unwrap();
+        assert_eq!(exported.len(), 2);
+        let restored = linguarust::anki::parse(&linguarust::anki::export(&exported));
+        let summary = linguarust::anki::report(&restored);
+        assert_eq!(summary.parsed, 2, "выгруженная колода читается обратно");
+        let words: Vec<&str> = restored.cards.iter().map(|c| c.front.as_str()).collect();
+        assert!(words.contains(&"deadline"), "{words:?}");
+
+        cleanup(&pool, profile_id).await;
+    });
+}
+
+#[test]
 fn seed_data_is_available() {
     runtime().block_on(async {
         let Some(pool) = init_pool().await else {

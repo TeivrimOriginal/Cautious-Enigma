@@ -74,6 +74,22 @@
 </section>
 
 <section class="panel">
+  <h3>Колода</h3>
+  <p class="muted small">
+    Формат Anki: колонки разделены табом, первые строки файла задают разделитель
+    и порядок полей. Подойдёт и обычный CSV — «слово;перевод;пример».
+  </p>
+  <form method="post" action="/cards/import">
+    <textarea name="deck" rows="4" class="deck-input"
+      placeholder="deadline;срок сдачи;до пятницы"></textarea>
+    <div class="grid cols-2 deck-actions">
+      <button class="btn small" type="submit">Загрузить колоду</button>
+      <a class="btn ghost small" href="/cards/export">Выгрузить в Anki</a>
+    </div>
+  </form>
+</section>
+
+<section class="panel">
   <h3>Все карточки ({{ total }})</h3>
   {% if all.is_empty() %}
     <p class="muted">Пока пусто. Начните с текста для чтения — там слова можно добавлять по клику.</p>
